@@ -206,6 +206,35 @@ not a judgement that a forecast is still valid.
 
 ---
 
+## Hosting a demo on Hugging Face Spaces (free)
+
+The hosted demo runs the same six services in one Docker container, with `RA_PUBLIC_MODE=1`. In that mode:
+
+* **Fixed corpus.** It is built on your machine and uploaded with the app. The container never crawls OCBC; the ingest and schedule endpoints return 403.
+* **Access password.** Visitors sign in with a shared password (`APP_PASSWORD`) and get a signed session cookie. Failed logins are throttled.
+* **Private history.** Each visitor sees only their own conversations.
+* **Limits.** Each visitor can ask 20 questions per hour. After 200 model-written summaries in a day (SGT), answers switch to quoting sources directly until the next day.
+* **Network exposure.** Only the gateway listens on the network (0.0.0.0:7860). Every other service stays on 127.0.0.1 inside the container.
+
+**First deployment:**
+
+1. Create a free account at huggingface.co.
+2. In your own terminal, run `hf auth login` and paste a token with *write* access.
+3. Upload the app and the current corpus:
+   ```bash
+   python scripts/deploy_space.py <your-hf-username>/research-desk
+   ```
+4. On the Space page, open **Settings → Variables and secrets** and add these as **Secrets**:
+   * `APP_PASSWORD`: the password you give your friends
+   * `ANTHROPIC_API_KEY`: optional; without it the demo runs in extractive mode
+5. The Space builds itself (about 5–10 minutes). Share the direct URL, `https://<username>-research-desk.hf.space`.
+
+**To refresh the hosted corpus**, run `python -m app.ingestion.run` locally, then run the deploy script again.
+The free tier sleeps after a period without visitors and wakes on the next visit. Conversation history
+is lost when the Space restarts. Set a monthly spend limit in the Anthropic console.
+
+---
+
 ## Tests
 
 ```bash

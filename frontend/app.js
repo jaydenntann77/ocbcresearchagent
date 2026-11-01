@@ -51,6 +51,7 @@ function toast(msg) {
 
 async function api(path, opts = {}) {
   const res = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts });
+  if (res.status === 401 && path !== "/api/login") { showLogin(); throw new Error("login required"); }
   if (!res.ok) {
     let detail = `HTTP ${res.status}`;
     try { detail = (await res.json()).detail || detail; } catch (_) { /* ignore */ }
@@ -205,7 +206,12 @@ async function ask(question) {
   try {
     const res = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message: question, conversation_id: state.cid }) });
-    if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+    if (res.status === 401) { prog.done(); showLogin(); return; }
+    if (!res.ok || !res.body) {
+      let detail = `HTTP ${res.status}`;
+      try { detail = (await res.json()).detail || detail; } catch (_) { /* ignore */ }
+      throw new Error(detail);
+    }
     const reader = res.body.getReader();
     const dec = new TextDecoder();
     let buf = "";
@@ -512,6 +518,7 @@ async function renderAdmin() {
   const head = el("div", { class: "admin-head" },
     el("div", {}, el("h1", { text: "Corpus status" }),
       el("p", { text: window ? `Ingestion window ${window.label} (inclusive, Asia/Singapore) · ${window.days} calendar days${window.expanded ? " · EXPANDED beyond the default" : ""}` : "No successful ingestion yet." })),
+    s.public_mode ? el("span", { class: "badge info", text: "Read-only hosted demo" }) :
     el("div", { class: "controls" },
       el("button", { class: "btn btn-primary", type: "button", disabled: running, onclick: async () => {
         try { await api("/api/admin/ingest", { method: "POST", body: "{}" }); toast("Refresh started"); renderAdmin(); } catch (e) { toast(e.message); }
@@ -583,7 +590,8 @@ async function renderAdmin() {
     s.job && s.job.error ? el("div", { class: "notice error", style: "margin-top:10px" }, svg("alert"), el("div", { text: s.job.error })) : null);
   view.replaceChildren(el("div", { class: "admin" }, head,
     !complete && latest ? el("div", { class: "notice advice" }, svg("alert"), el("div", { text: "Coverage is not complete: at least one section or document could not be checked. Answers will disclose this." })) : null,
-    cards, el("div", { class: "grid-2" }, coverage, fresh), ops, fails, sections, docs, excl));
+    s.public_mode ? el("div", { class: "notice info" }, svg("shield"), el("div", { text: "This hosted demo serves a fixed corpus built on " + (s.last_successful_run ? fmtTs(s.last_successful_run.finished_at) : "—") + ". Crawling, refresh and scheduling are disabled here; the corpus is rebuilt and re-uploaded by the administrator." })) : null,
+    cards, el("div", { class: "grid-2" }, coverage, fresh), s.public_mode ? null : ops, fails, sections, docs, excl));
   clearTimeout(state.adminTimer);
   if (running) state.adminTimer = setTimeout(() => { if (!$("viewAdmin").hidden) renderAdmin(); }, 3000);
   else loadMeta();
@@ -620,7 +628,38 @@ $("drawerClose").addEventListener("click", closeDrawer);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeDrawer(); closeNav(); } });
 window.addEventListener("popstate", () => route(location.pathname === "/admin" ? "admin" : "chat", false));
 
+// ------------------------------------------------------------------ login
+function showLogin(message) {
+  if (document.getElementById("login")) return;
+  const input = el("input", { type: "password", id: "loginPassword", autocomplete: "current-password", required: true,
+    "aria-label": "Access password", placeholder: "Access password" });
+  const err = el("div", { class: "login-error", role: "alert", text: message || "" });
+  const form = el("form", { class: "login-card", onsubmit: async (e) => {
+    e.preventDefault();
+    err.textContent = "";
+    try {
+      await api("/api/login", { method: "POST", body: JSON.stringify({ password: input.value }) });
+      location.reload();
+    } catch (ex) { err.textContent = ex.message === "HTTP 401" ? "Incorrect password." : ex.message; input.select(); }
+  } },
+    el("span", { class: "brand-mark", "aria-hidden": "true" }),
+    el("h1", { text: "Research Desk" }),
+    el("p", { text: "OCBC research assistant. Enter the access password you were given." }),
+    input, err, el("button", { class: "btn btn-primary btn-block", type: "submit", text: "Sign in" }));
+  document.body.append(el("div", { class: "login", id: "login" }, form));
+  input.focus();
+}
+
 (async function init() {
+  try {
+    const sess = await api("/api/session");
+    state.session = sess;
+    if (!sess.authenticated) { showLogin(); return; }
+    if (sess.password_required) {
+      $("sidebarFoot").after(el("button", { class: "btn btn-ghost signout", type: "button", text: "Sign out", onclick: async () => {
+        await api("/api/logout", { method: "POST", body: "{}" }); location.reload(); } }));
+    }
+  } catch (_) { /* gateway unreachable: meta will show offline */ }
   await loadMeta();
   renderEmpty();
   loadHistory();

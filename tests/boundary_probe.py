@@ -65,7 +65,7 @@ def main(role: str):
     res["subprocess"] = attempt(lambda: subprocess.run(["cmd", "/c", "echo", "x"], capture_output=True))
     if role == "orchestrator":
         from app.orchestrator import conversations
-        res["own_conversation_store"] = attempt(lambda: conversations.list_all())
+        res["own_conversation_store"] = attempt(lambda: conversations.list_all("probe"))
     print(json.dumps(res))
 
 

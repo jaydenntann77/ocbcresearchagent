@@ -1,0 +1,51 @@
+"""Hosted-mode gateway rules: password login, signed session cookies,
+read-only admin in public mode, login throttling. Runs the gateway app in a
+subprocess (its process policy must not leak into the test process)."""
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+PROBE = r'''
+import json
+from fastapi.testclient import TestClient
+from app.gateway.service import app
+c = TestClient(app, base_url="http://testserver")
+r = {}
+r["session_anon"] = c.get("/api/session").json()
+r["conversations_anon"] = c.get("/api/conversations").status_code
+r["meta_anon"] = c.get("/api/meta").status_code
+r["wrong_pw"] = c.post("/api/login", json={"password": "nope"}).status_code
+r["right_pw"] = c.post("/api/login", json={"password": "s3cret-demo"}).status_code
+r["cookie_set"] = "ra_session" in c.cookies
+r["session_after"] = c.get("/api/session").json()
+r["admin_ingest"] = c.post("/api/admin/ingest", json={}).status_code
+r["admin_schedule"] = c.put("/api/admin/schedule", json={"cron": "0 8 * * *"}).status_code
+forged = TestClient(app, base_url="http://testserver", cookies={"ra_session": "abc.deadbeef"})
+r["forged_cookie"] = forged.get("/api/conversations").status_code
+other = TestClient(app, base_url="http://testserver")
+codes = [other.post("/api/login", json={"password": "x"}).status_code for _ in range(11)]
+r["throttle_last"] = codes[-1]
+r["index_public"] = c.get("/").status_code
+print(json.dumps(r))
+'''
+
+
+def test_public_mode_gateway_rules():
+    env = dict(os.environ, RA_PUBLIC_MODE="1", APP_PASSWORD="s3cret-demo", RA_SESSION_SECRET="test-secret",
+               RA_TOKEN_ADMIN="a", RA_TOKEN_GATEWAY_ORCH="b", RA_TOKEN_GATEWAY_DOCS="c")
+    proc = subprocess.run([sys.executable, "-c", PROBE], cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)
+    assert proc.returncode == 0, proc.stderr[-2000:]
+    r = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert r["session_anon"] == {"authenticated": False, "password_required": True, "public_mode": True}
+    assert r["conversations_anon"] == 401 and r["meta_anon"] == 401
+    assert r["wrong_pw"] == 401
+    assert r["right_pw"] == 200 and r["cookie_set"]
+    assert r["session_after"]["authenticated"] is True
+    assert r["admin_ingest"] == 403 and r["admin_schedule"] == 403  # read-only corpus when hosted
+    assert r["forged_cookie"] == 401
+    assert r["throttle_last"] == 429
+    assert r["index_public"] == 200  # the login page itself loads

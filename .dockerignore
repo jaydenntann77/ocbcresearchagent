@@ -1,0 +1,9 @@
+.git
+.env
+.claude
+__pycache__
+*.pyc
+.pytest_cache
+data/orchestrator
+data/models
+data/run.*

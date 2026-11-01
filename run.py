@@ -31,7 +31,7 @@ MODULES = {
     "gateway": "app.gateway.service:app",
 }
 SECRETS_FOR = {
-    "gateway": ["RA_TOKEN_GATEWAY_ORCH", "RA_TOKEN_GATEWAY_DOCS", "RA_TOKEN_ADMIN"],
+    "gateway": ["RA_TOKEN_GATEWAY_ORCH", "RA_TOKEN_GATEWAY_DOCS", "RA_TOKEN_ADMIN", "RA_SESSION_SECRET", "APP_PASSWORD"],
     "orchestrator": ["RA_TOKEN_GATEWAY_ORCH", "RA_TOKEN_ORCH_RESEARCH", "RA_TOKEN_ORCH_VALIDATOR", "ANTHROPIC_API_KEY",
                      "ANTHROPIC_AUTH_TOKEN"],
     "research": ["RA_TOKEN_ORCH_RESEARCH", "RA_EVIDENCE_SIGNING_KEY"],
@@ -88,7 +88,7 @@ def main():
         raise SystemExit(f"ports already in use ({', '.join(busy)}). Stop the other instance (python run.py --stop) "
                          f"or change RA_*_PORT in .env.")
     secrets_env = {k: secrets.token_urlsafe(32) for k in ALL_SECRETS if k.startswith("RA_")}
-    for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
+    for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "APP_PASSWORD"):
         if os.environ.get(k):
             secrets_env[k] = os.environ[k]
     procs = {}
@@ -98,7 +98,8 @@ def main():
         env.update({k: secrets_env[k] for k in SECRETS_FOR[name] if k in secrets_env})
         env["HF_HUB_OFFLINE"] = "1"
         env["PYTHONUNBUFFERED"] = "1"
-        cmd = [sys.executable, "-m", "uvicorn", MODULES[name], "--host", "127.0.0.1", "--port",
+        host = config.GATEWAY_HOST if name == "gateway" else "127.0.0.1"  # only the gateway may face the network
+        cmd = [sys.executable, "-m", "uvicorn", MODULES[name], "--host", host, "--port",
                str(config.PORTS[name]), "--log-level", "warning"]
         procs[name] = subprocess.Popen(cmd, env=env, cwd=str(config.ROOT))
         print(f"started {name:<12} pid={procs[name].pid} port={config.PORTS[name]}")

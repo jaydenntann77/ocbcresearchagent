@@ -36,6 +36,12 @@ def _conn():
     return conn
 
 
+def _raw_path(d: dict):
+    """Raw PDFs are stored by content hash; resolve against this machine's
+    RAW_DIR so a corpus built on one machine works on another."""
+    return config.RAW_DIR / f"{d['sha256']}.pdf"
+
+
 def _doc(doc_id: str) -> dict:
     if not DOC_ID_RE.match(doc_id):
         raise HTTPException(400, "invalid document id")
@@ -74,7 +80,7 @@ def page_image(doc_id: str, page: int, q: str | None = Query(default=None, max_l
     d = _doc(doc_id)
     if page < 1 or page > (d["page_count"] or 0):
         raise HTTPException(404, "page not found")
-    with fitz.open(d["raw_path"]) as pdf:
+    with fitz.open(_raw_path(d)) as pdf:
         p = pdf[page - 1]
         if q:
             for part in re.split(r"\n|(?<=[.;:])\s+", q):
@@ -99,7 +105,7 @@ def page_image(doc_id: str, page: int, q: str | None = Query(default=None, max_l
 @app.get("/v1/documents/{doc_id}/pdf", dependencies=[Depends(auth)])
 def pdf(doc_id: str):
     d = _doc(doc_id)
-    with open(d["raw_path"], "rb") as fh:
+    with open(_raw_path(d), "rb") as fh:
         data = fh.read()
     return Response(data, media_type="application/pdf",
                     headers={"Content-Disposition": f'inline; filename="{doc_id}.pdf"'})

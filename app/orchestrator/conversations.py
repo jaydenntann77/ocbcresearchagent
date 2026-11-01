@@ -1,4 +1,7 @@
-"""Conversation history - the orchestrator's only storage (data/orchestrator)."""
+"""Conversation history - the orchestrator's only storage (data/orchestrator).
+
+Each conversation belongs to the visitor session that created it (the
+gateway's signed session id), so visitors never see each other's history."""
 from __future__ import annotations
 
 import json
@@ -7,7 +10,7 @@ import threading
 import uuid
 
 from app.common import config
-from app.common.timeutil import now_sgt
+from app.common.timeutil import now_sgt, today_sgt
 
 _lock = threading.Lock()
 
@@ -20,15 +23,20 @@ def _conn():
     CREATE TABLE IF NOT EXISTS conversations (id TEXT PRIMARY KEY, title TEXT, created_at TEXT, updated_at TEXT, state TEXT);
     CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, conversation_id TEXT, role TEXT, content TEXT, answer TEXT,
                                          created_at TEXT);
+    CREATE TABLE IF NOT EXISTS model_usage (day TEXT PRIMARY KEY, calls INTEGER);
     """)
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(conversations)")}
+    if "owner" not in cols:
+        conn.execute("ALTER TABLE conversations ADD COLUMN owner TEXT DEFAULT 'local'")
     return conn
 
 
-def create(title: str) -> str:
+def create(title: str, owner: str) -> str:
     cid = "c-" + uuid.uuid4().hex[:12]
     ts = now_sgt().isoformat()
     with _lock, _conn() as conn:
-        conn.execute("INSERT INTO conversations VALUES (?,?,?,?,?)", (cid, title[:120], ts, ts, "{}"))
+        conn.execute("INSERT INTO conversations(id,title,created_at,updated_at,state,owner) VALUES (?,?,?,?,?,?)",
+                     (cid, title[:120], ts, ts, "{}", owner))
     return cid
 
 
@@ -53,20 +61,22 @@ def set_state(cid: str, state: dict):
         conn.execute("UPDATE conversations SET state=? WHERE id=?", (json.dumps(state), cid))
 
 
-def exists(cid: str) -> bool:
+def exists(cid: str, owner: str) -> bool:
     with _lock, _conn() as conn:
-        return conn.execute("SELECT 1 FROM conversations WHERE id=?", (cid,)).fetchone() is not None
+        return conn.execute("SELECT 1 FROM conversations WHERE id=? AND owner=?", (cid, owner)).fetchone() is not None
 
 
-def list_all() -> list[dict]:
+def list_all(owner: str) -> list[dict]:
     with _lock, _conn() as conn:
         return [dict(r) for r in conn.execute(
-            "SELECT id, title, created_at, updated_at FROM conversations ORDER BY updated_at DESC LIMIT 200")]
+            "SELECT id, title, created_at, updated_at FROM conversations WHERE owner=? ORDER BY updated_at DESC LIMIT 200",
+            (owner,))]
 
 
-def get(cid: str) -> dict | None:
+def get(cid: str, owner: str) -> dict | None:
     with _lock, _conn() as conn:
-        c = conn.execute("SELECT id, title, created_at, updated_at FROM conversations WHERE id=?", (cid,)).fetchone()
+        c = conn.execute("SELECT id, title, created_at, updated_at FROM conversations WHERE id=? AND owner=?",
+                         (cid, owner)).fetchone()
         if not c:
             return None
         msgs = [dict(r) for r in conn.execute(
@@ -76,7 +86,21 @@ def get(cid: str) -> dict | None:
     return dict(c) | {"messages": msgs}
 
 
-def delete(cid: str):
+def delete(cid: str, owner: str):
     with _lock, _conn() as conn:
-        conn.execute("DELETE FROM messages WHERE conversation_id=?", (cid,))
-        conn.execute("DELETE FROM conversations WHERE id=?", (cid,))
+        if conn.execute("SELECT 1 FROM conversations WHERE id=? AND owner=?", (cid, owner)).fetchone():
+            conn.execute("DELETE FROM messages WHERE conversation_id=?", (cid,))
+            conn.execute("DELETE FROM conversations WHERE id=?", (cid,))
+
+
+def take_model_call(cap: int) -> bool:
+    """Reserve one model call against today's (SGT) cap. False once the cap is used up."""
+    day = today_sgt().isoformat()
+    with _lock, _conn() as conn:
+        row = conn.execute("SELECT calls FROM model_usage WHERE day=?", (day,)).fetchone()
+        used = row["calls"] if row else 0
+        if used >= cap:
+            return False
+        conn.execute("INSERT INTO model_usage(day, calls) VALUES(?, 1) ON CONFLICT(day) DO UPDATE SET calls=calls+1",
+                     (day,))
+        return True

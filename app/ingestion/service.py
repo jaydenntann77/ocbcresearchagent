@@ -71,6 +71,8 @@ def startup():
     cron = store.get_state(conn, "schedule_cron", config.INGEST_SCHEDULE_CRON or "")
     conn.close()
     scheduler.start()
+    if config.PUBLIC_MODE:
+        return  # hosted demo: read-only corpus, no crawling and no scheduled refresh
     try:
         _apply_schedule(cron)
     except ValueError:
@@ -128,7 +130,7 @@ def status():
             "freshness_policy": freshness_policy(),
             "schedule": {"cron": schedule, "timezone": "Asia/Singapore", "next_run": next_run},
             "job": _job, "semantic_retrieval": embedding.available(),
-            "default_window_days": config.INGEST_WINDOW_DAYS,
+            "default_window_days": config.INGEST_WINDOW_DAYS, "public_mode": config.PUBLIC_MODE,
         }
     finally:
         conn.close()
@@ -136,6 +138,8 @@ def status():
 
 @app.post("/v1/ingest", dependencies=[Depends(auth)])
 def ingest(payload: dict = Body(default={})):
+    if config.PUBLIC_MODE:
+        raise HTTPException(403, "ingestion is disabled in public mode")
     days = payload.get("days")
     if days is not None:
         days = int(days)
@@ -158,6 +162,8 @@ def get_schedule():
 
 @app.put("/v1/schedule", dependencies=[Depends(auth)])
 def put_schedule(payload: dict = Body(...)):
+    if config.PUBLIC_MODE:
+        raise HTTPException(403, "scheduling is disabled in public mode")
     cron = (payload.get("cron") or "").strip()
     try:
         _apply_schedule(cron or None)

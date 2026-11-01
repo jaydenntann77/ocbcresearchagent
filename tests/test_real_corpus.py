@@ -46,11 +46,11 @@ def test_stale_metadata_title_flagged(conn):
 def test_forecast_values_match_source_page_exactly(conn):
     """Every USD-SGD forecast cell must appear on its source page, on the same
     line as the instrument label, in the original precision."""
-    recs = conn.execute("SELECT f.*, d.raw_path FROM forecast_records f JOIN documents d USING(doc_id) "
+    recs = conn.execute("SELECT f.*, d.sha256 FROM forecast_records f JOIN documents d USING(doc_id) "
                         "WHERE instrument_key='USDSGD'").fetchall()
     assert recs
     for r in recs:
-        page = fitz.open(r["raw_path"])[r["pdf_page"] - 1]
+        page = fitz.open(ROOT / "data" / "corpus" / "raw" / f"{r['sha256']}.pdf")[r["pdf_page"] - 1]
         words = page.get_text("words")
         label_words = [w for w in words if w[4] == r["instrument_label"]]
         assert label_words, r["instrument_label"]

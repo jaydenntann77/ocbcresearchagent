@@ -29,7 +29,7 @@ import threading  # noqa: E402
 from concurrent.futures import ThreadPoolExecutor  # noqa: E402
 from datetime import date, datetime  # noqa: E402
 
-from fastapi import Body, Depends, FastAPI, HTTPException  # noqa: E402
+from fastapi import Body, Depends, FastAPI, Header, HTTPException  # noqa: E402
 from fastapi.responses import StreamingResponse  # noqa: E402
 
 from app.common.schemas import SPECIALIST_LABELS  # noqa: E402
@@ -130,9 +130,15 @@ def answer_question(question: str, state: dict, emit) -> tuple[dict, dict]:
                                         known_gaps=gaps, follow_up_of=lead.task_id)
             emit("Requesting supporting macro research")
             responses += [run(t) for t in extra]
+    use_model = llm.status()["available"]
+    if use_model and not conversations.take_model_call(config.MODEL_DAILY_CAP):
+        use_model = False
+        notices.append({"kind": "info", "text": "Today's budget for model-written summaries has been used up, so this "
+                                                "answer quotes the OCBC sources directly. Full summaries resume tomorrow "
+                                                "(SGT)."})
     emit("Validating evidence and citations")
     try:
-        answer = composer.compose(question, plan, responses, validator, notices, corpus)
+        answer = composer.compose(question, plan, responses, validator, notices, corpus, use_model=use_model)
     except ServiceError as exc:
         return _simple(question, "error", f"The evidence validator is unavailable ({exc}), so the answer was withheld "
                                           f"rather than shown unvalidated. Please retry shortly.", notices, corpus), state
@@ -150,7 +156,7 @@ def health():
 @app.get("/v1/meta", dependencies=[Depends(auth)])
 def meta():
     out = {"model": llm.status(), "suggestions": SUGGESTIONS, "now": now_sgt().isoformat(),
-           "now_label": fmt_dt(now_sgt())}
+           "now_label": fmt_dt(now_sgt()), "public_mode": config.PUBLIC_MODE}
     try:
         out["corpus"] = corpus_meta()
     except ServiceError as exc:
@@ -160,32 +166,32 @@ def meta():
 
 
 @app.get("/v1/conversations", dependencies=[Depends(auth)])
-def list_conversations():
-    return conversations.list_all()
+def list_conversations(x_ra_session: str = Header(default="local")):
+    return conversations.list_all(x_ra_session)
 
 
 @app.get("/v1/conversations/{cid}", dependencies=[Depends(auth)])
-def get_conversation(cid: str):
-    c = conversations.get(cid)
+def get_conversation(cid: str, x_ra_session: str = Header(default="local")):
+    c = conversations.get(cid, x_ra_session)
     if not c:
         raise HTTPException(404, "conversation not found")
     return c
 
 
 @app.delete("/v1/conversations/{cid}", dependencies=[Depends(auth)])
-def delete_conversation(cid: str):
-    conversations.delete(cid)
+def delete_conversation(cid: str, x_ra_session: str = Header(default="local")):
+    conversations.delete(cid, x_ra_session)
     return {"deleted": cid}
 
 
 @app.post("/v1/chat", dependencies=[Depends(auth)])
-def chat(payload: dict = Body(...)):
+def chat(payload: dict = Body(...), x_ra_session: str = Header(default="local")):
     question = (payload.get("message") or "").strip()
     if not question or len(question) > 2000:
         raise HTTPException(400, "message must be 1-2000 characters")
     cid = payload.get("conversation_id")
-    if not cid or not conversations.exists(cid):
-        cid = conversations.create(question)
+    if not cid or not conversations.exists(cid, x_ra_session):
+        cid = conversations.create(question, x_ra_session)
     conversations.add_message(cid, "user", question)
     q: queue.Queue = queue.Queue()
 
