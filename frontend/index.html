@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Research Desk · OCBC Research Assistant</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23E2231A'/%3E%3Cpath d='M9 22V10h7.5a4 4 0 010 8H13m3 0l5 4' stroke='white' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+</head>
+<body>
+<div class="app" id="app">
+  <aside class="sidebar" id="sidebar" aria-label="Navigation">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <div>
+        <div class="brand-name">Research Desk</div>
+        <div class="brand-sub">OCBC research assistant</div>
+      </div>
+    </div>
+    <button class="btn btn-primary btn-block" id="newChat" type="button">
+      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg>New research
+    </button>
+    <nav class="nav">
+      <a href="/" class="nav-link" data-route="chat" id="navChat">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14v8H8l-4 3v-3H3z"/></svg>Workspace</a>
+      <a href="/admin" class="nav-link" data-route="admin" id="navAdmin">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 4h14v4H3zM3 11h14v5H3z"/></svg>Corpus status</a>
+    </nav>
+    <div class="sidebar-section">History</div>
+    <ul class="history" id="history" aria-label="Conversation history"></ul>
+    <div class="sidebar-foot" id="sidebarFoot"></div>
+  </aside>
+  <div class="scrim" id="scrim" hidden></div>
+
+  <main class="main" id="main">
+    <header class="topbar">
+      <button class="icon-btn menu-btn" id="menuBtn" type="button" aria-label="Open navigation">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 6h14M3 10h14M3 14h14"/></svg>
+      </button>
+      <div class="freshness" id="freshness" aria-live="polite"></div>
+      <div class="mode-pill" id="modePill"></div>
+    </header>
+
+    <section class="view view-chat" id="viewChat">
+      <div class="thread" id="thread" aria-live="polite"></div>
+      <form class="composer" id="composer" autocomplete="off">
+        <label class="sr-only" for="prompt">Research question</label>
+        <textarea id="prompt" rows="1" maxlength="2000"
+                  placeholder="Ask about a forecast, view or risk…"></textarea>
+        <button class="btn btn-primary send" id="send" type="submit" aria-label="Send">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h11M11 5l5 5-5 5"/></svg>
+        </button>
+        <div class="composer-hint">Answers draw only on ingested OCBC research PDFs. No web search. No investment advice.</div>
+      </form>
+    </section>
+
+    <section class="view view-admin" id="viewAdmin" hidden></section>
+  </main>
+
+  <aside class="drawer" id="drawer" aria-label="Source document" hidden>
+    <div class="drawer-head">
+      <div>
+        <div class="drawer-kicker" id="drawerKicker">Source</div>
+        <h2 class="drawer-title" id="drawerTitle"></h2>
+      </div>
+      <button class="icon-btn" id="drawerClose" type="button" aria-label="Close source panel">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15"/></svg>
+      </button>
+    </div>
+    <div class="drawer-body" id="drawerBody"></div>
+  </aside>
+</div>
+<div class="toast" id="toast" role="status" hidden></div>
+<script src="/static/app.js" type="module"></script>
+</body>
+</html>

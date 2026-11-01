@@ -1,0 +1,26 @@
+{
+  "_doc": "Specialist access policy. Each specialist may search only the collections listed. Routing lexicons decide which collections a multi-sector section is indexed into.",
+  "access": {
+    "fx": ["fx"], "rates": ["rates"], "macro": ["macro"], "equities": ["equities"], "credit": ["credit"]
+  },
+  "category_primary": {
+    "Macro Views": "macro", "Sustainability And Commodities": "macro",
+    "Credit Research": "credit", "Equity Research": "equities",
+    "Foreign Exchange (FX)": "fx", "Interest Rates and Bond Yields": "rates",
+    "Interest Rates and Bonds Yields Forecast": "rates", "FX And Rates": "fx"
+  },
+  "lexicon": {
+    "fx": ["fx", "currency", "currencies", "usd", "sgd", "s$neer", "sgd neer", "neer", "dxy", "dollar", "yen", "jpy", "eur", "cny", "cnh", "rmb", "myr", "idr", "thb", "krw", "twd", "inr", "php", "appreciation", "depreciation", "exchange rate", "usdsgd", "usd-sgd", "usd/sgd"],
+    "rates": ["yield", "yields", "ust", "treasury", "treasuries", "sgs", "sora", "sofr", "fed funds", "fomc", "rate hike", "rate cut", "hike", "bps", "bp", "curve", "swap", "policy rate", "ecb", "boj", "boe", "auction", "duration", "bund", "gilt", "deposit facility", "steepen", "flatten"],
+    "macro": ["gdp", "inflation", "cpi", "pce", "pmi", "growth", "fiscal", "budget", "exports", "imports", "unemployment", "labour", "economy", "economic", "mas", "central bank", "oil", "brent", "commodity", "commodities", "gold", "trade", "industrial production", "recession", "esg", "sustainability"],
+    "equities": ["equity", "equities", "stock", "stocks", "s&p 500", "sti", "nasdaq", "nikkei", "hang seng", "dow", "earnings", "share price", "target price", "dividend", "reit", "reits", "valuation", "p/e", "market cap"],
+    "credit": ["credit", "issuer", "issuers", "spread", "spreads", "high yield", "investment grade", "hy", "ig", "rating", "ratings", "moody", "fitch", "perpetual", "perp", "coupon", "maturity", "leverage", "refinancing", "bond issuance", "new issue", "oas", "credit profile", "default"]
+  },
+  "secondary_threshold": 4,
+  "forecast_key_routing": {
+    "fx_pairs": "fx", "DXY": "fx",
+    "GOLD": ["fx", "macro"], "SILVER": ["fx", "macro"], "PLATINUM": ["fx", "macro"], "PALLADIUM": ["fx", "macro"],
+    "BRENT": "macro", "WTI": "macro", "COPPER": "macro", "ALUMINIUM": "macro",
+    "rates_default": "rates"
+  }
+}

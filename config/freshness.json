@@ -1,0 +1,10 @@
+{
+  "_doc": "Document-age indicators (days between publication date and answer time, SGT). They describe how old a report is, not whether its forecasts remain valid. 'Date uncertain' applies whenever date confidence is low or the date conflicts.",
+  "policies": {
+    "daily":    {"label": "Daily reports (Daily Treasury Outlook, Daily Market Outlook, Daily Credit Snapshot)", "recent_max_days": 2,  "older_max_days": 7},
+    "weekly":   {"label": "Weekly reports (FX Weekly, Weekly Macro View, Credit Week in Brief, Week in Review, Sustainability Weekly)", "recent_max_days": 7,  "older_max_days": 21},
+    "thematic": {"label": "Thematic / event notes (Interest Rates Focus, Regional Focus, commodities, auction previews, central-bank reviews)", "recent_max_days": 14, "older_max_days": 45},
+    "monthly":  {"label": "Monthly / outlook reports (monthlies, half-year outlooks, compendia)", "recent_max_days": 31, "older_max_days": 120}
+  },
+  "default": "thematic"
+}

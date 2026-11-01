@@ -1,0 +1,100 @@
+"""Central configuration. Values come from environment variables (optionally a
+.env file at the project root). Each service reads only what it needs; the
+orchestrator never receives corpus paths (see app/common/guard.py)."""
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def _load_dotenv() -> None:
+    env_file = ROOT / ".env"
+    if not env_file.exists():
+        return
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+_load_dotenv()
+
+
+def env(name: str, default: str | None = None) -> str | None:
+    value = os.environ.get(name)
+    return value if value not in (None, "") else default
+
+
+def env_int(name: str, default: int) -> int:
+    try:
+        return int(env(name, str(default)))
+    except ValueError:
+        return default
+
+
+DATA_DIR = Path(env("RA_DATA_DIR", str(ROOT / "data"))).resolve()
+CONFIG_DIR = ROOT / "config"
+FRONTEND_DIR = ROOT / "frontend"
+
+# Corpus storage layout (owned by the ingestion service).
+RAW_DIR = DATA_DIR / "corpus" / "raw"
+META_DB = DATA_DIR / "corpus" / "corpus.db"
+COLLECTIONS_DIR = DATA_DIR / "collections"
+MODELS_DIR = DATA_DIR / "models"
+INGEST_STATE_DIR = DATA_DIR / "ingestion"
+# Orchestrator-owned storage: conversation history only.
+ORCH_DIR = DATA_DIR / "orchestrator"
+
+PORTS = {
+    "gateway": env_int("RA_GATEWAY_PORT", 8000),
+    "orchestrator": env_int("RA_ORCHESTRATOR_PORT", 8100),
+    "research": env_int("RA_RESEARCH_PORT", 8101),
+    "validator": env_int("RA_VALIDATOR_PORT", 8102),
+    "docs": env_int("RA_DOCS_PORT", 8103),
+    "ingestion": env_int("RA_INGESTION_PORT", 8104),
+}
+
+
+def service_url(name: str) -> str:
+    return f"http://127.0.0.1:{PORTS[name]}"
+
+
+# Service-to-service credentials. run.py generates fresh random values per
+# launch and passes each process only the tokens it needs.
+TOKEN_ORCH_RESEARCH = env("RA_TOKEN_ORCH_RESEARCH")      # orchestrator -> research (/v1/tasks only)
+TOKEN_ORCH_VALIDATOR = env("RA_TOKEN_ORCH_VALIDATOR")    # orchestrator -> validator
+TOKEN_ADMIN = env("RA_TOKEN_ADMIN")                      # gateway -> ingestion admin
+TOKEN_GATEWAY_DOCS = env("RA_TOKEN_GATEWAY_DOCS")        # gateway -> document viewer
+TOKEN_GATEWAY_ORCH = env("RA_TOKEN_GATEWAY_ORCH")        # gateway -> conversation API
+EVIDENCE_SIGNING_KEY = env("RA_EVIDENCE_SIGNING_KEY")    # research + validator only
+
+MODEL_NAME = env("RA_MODEL", "claude-opus-5-5")
+MODEL_EFFORT = env("RA_MODEL_EFFORT", "medium")
+MODEL_API_HOST = "api.anthropic.com"
+
+
+def model_credentials_present() -> bool:
+    return bool(env("ANTHROPIC_API_KEY") or env("ANTHROPIC_AUTH_TOKEN"))
+
+
+INGEST_WINDOW_DAYS = env_int("RA_INGEST_WINDOW_DAYS", 7)
+# Set only by the automated tests, which ingest synthetic fixture PDFs into an
+# isolated temporary RA_DATA_DIR. Fixture documents are flagged dev_fixture=1
+# and the real corpus never indexes them.
+DEV_FIXTURE_CORPUS = env("RA_DEV_FIXTURE_CORPUS") == "1"
+INGEST_SCHEDULE_CRON = env("RA_INGEST_SCHEDULE_CRON", "")  # e.g. "0 8 * * *" (SGT); empty = disabled
+INGEST_MIN_INTERVAL_S = float(env("RA_INGEST_MIN_INTERVAL_S", "1.0"))
+INGEST_MAX_RETRIES = env_int("RA_INGEST_MAX_RETRIES", 3)
+
+OCBC_ALLOWED_HOSTS = {"www.ocbc.com", "ocbc.com"}
+OCBC_ALLOWED_PATH_PREFIXES = ("/group/research/", "/iwov-resources/sg/ocbc/gbc/pdf/", "/robots.txt")
+OCBC_START_URL = "https://www.ocbc.com/group/research/index"
+
+
+def load_json_config(name: str) -> dict:
+    return json.loads((CONFIG_DIR / name).read_text(encoding="utf-8"))
