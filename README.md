@@ -44,8 +44,7 @@ Open http://127.0.0.1:8000 for the workspace and http://127.0.0.1:8000/admin for
 Python 3.10+ is required. Everything runs locally and binds to 127.0.0.1 only. OCR uses RapidOCR (ONNX), so you
 do not need Tesseract.
 
-**Model credential (optional, currently missing).** `ANTHROPIC_API_KEY` was not available in this environment.
-Without it the app runs in **extractive mode**:
+**Model credential (optional).** Without `ANTHROPIC_API_KEY` in `.env` the app runs in **extractive mode**:
 
 * forecast values come straight from parsed tables
 * direct answers use fixed templates around those values
@@ -58,8 +57,9 @@ restart to switch on **model-assisted synthesis**, which works like this:
 * the model sees only specialist evidence, wrapped as untrusted data
 * every model sentence must cite evidence IDs and goes through the validator; failing sentences are dropped
 
-The UI shows which mode is active. The model path was **not** exercised live, because no credential was
-available (see Known limitations).
+The UI shows which mode is active. The model path was verified live on 1 Nov 2026: all 16 end-to-end
+scenarios pass in model-assisted mode, and the validator removed model sentences the evidence did not support.
+A question costs roughly US$0.05–0.10 on Opus 5.5 (estimate from token counts, not metered).
 
 ---
 
@@ -249,7 +249,7 @@ They are generated into a temporary `RA_DATA_DIR` with `RA_DEV_FIXTURE_CORPUS=1`
 
 ## Known limitations and unresolved blockers
 
-* **No model credential.** Model-assisted synthesis (`app/orchestrator/llm.py`) is implemented, but it was not run against the live API. It is guarded by the same validator; the drop-on-failure behaviour is tested with synthetic claims. All verified answers come from extractive mode.
+* **Model summaries depend on wording overlap.** The validator checks model sentences for cited numbers, pair direction, recommendation language and at least 60% word overlap with the cited excerpts. That catches added facts and figures, but a fluent paraphrase that shifts emphasis can still pass. Extractive mode (no key) avoids this entirely.
 * **Scenarios that the real 7-day corpus does not contain** were verified only on isolated fixtures:
   * forecast revisions and unresolved conflicts (the window holds one forecast-table set)
   * a fully scanned document (only image-only divider and chart pages were OCR'd)

@@ -1,6 +1,6 @@
 # End-to-end scenario results (real corpus)
 
-Run at 2026-11-01 03:21:02 local time against http://127.0.0.1:8000.
+Run at 2026-11-01 11:27:10 local time against http://127.0.0.1:8000.
 
 | ID | Scenario | Result | Evidence |
 |---|---|---|---|
@@ -17,6 +17,6 @@ Run at 2026-11-01 03:21:02 local time against http://127.0.0.1:8000.
 | S10 | Malicious instructions embedded in a document | PASS | real corpus: 0 passages flagged. Injection handling exercised on an isolated fixture PDF (test_embedded_instructions_withheld): flagged at ingestion, withheld from all collections, never quoted; evidence is passed to any model inside <evidence> as untrusted data; validator blocks recommendation language not present in sources. |
 | S11 | Attempted orchestrator corpus-access call | PASS | HTTP status per probe: {'research /v1/tasks without token': 401, 'research /v1/tasks wrong token': 403, 'research /v1/search (no such endpoint)': 404, 'docs service without token': 401, 'ingestion admin without token': 401, 'validator without token': 401, 'gateway route to research': 404}. In-process attempts (open/sqlite/listdir on corpus, import fitz/retrieval/embeddings, DNS for ocbc.com/google.com, loopback to docs/ingestion/gateway, subprocess) are all denied by the orchestrator process policy (test_orchestrator_cannot_access_corpus_or_web). |
 | S12 | Attempted specialist user-facing message | PASS | SpecialistResponse forbids extra fields: a payload with message_to_user is rejected by the orchestrator client (test_specialist_user_facing_message_rejected); the gateway has no route to the specialist service (test_gateway_routes_have_no_path_to_specialists); progress events are application-generated strings: ['Checking corpus coverage', 'Understanding the request', 'Reviewing FX research', 'Validating evidence and citations'] |
-| X1 | Published-view question | PASS | status complete; specialists ['Rates']; 2 cited excerpts; first point: On balance, a bond/swap spread (OIS - yield) at 10bps or below is likely seen as supportive. |
-| X2 | Published-view question | PASS | status complete; specialists ['Credit']; 4 cited excerpts; first point: The structural hedge continues to cushion mortgage and deposit-margin pressure, while the key risks are a more competitive deposit market, higher costs and a so |
-| X3 | Published-view question | PASS | status complete; specialists ['FX', 'Rates']; 8 cited excerpts; first point: More frequent episodes where AI concerns simultaneously weigh on US equities, yields and the USD would strengthen JPY’s value as a portfolio hedge and reinforce |
+| X1 | Published-view question | PASS | status complete; specialists ['Rates']; 2 cited excerpts; first point: The available OCBC research on SGD rates is limited to the 27 Oct 2026 Interest Rates Focus: 5Y SGS Auction Preview, which views a bond/swap spread (OIS - yield |
+| X2 | Published-view question | PASS | status complete; specialists ['Credit']; 4 cited excerpts; first point: The latest OCBC credit research, the 30 Oct Daily Credit Snapshot, identifies the key risks as a more competitive deposit market, higher costs and a softer UK m |
+| X3 | Published-view question | PASS | status complete; specialists ['FX', 'Rates']; 6 cited excerpts; first point: On the BoJ, the 30 Oct Daily Treasury Outlook notes the BoJ was expected to hold its policy rate at 1.25% at that day's decision. |

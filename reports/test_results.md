@@ -51,8 +51,17 @@ Full evidence is in [scenario_results.md](scenario_results.md). Each required sc
   * Cron `0 8 * * *` saved, next run 08:00 SGT. An invalid cron is rejected (400). The schedule was cleared afterwards.
   * An admin-triggered refresh ran with 25 unchanged, 106 excluded and no errors. A concurrent second refresh is rejected (409).
 
-## Not tested / unavailable conditions
+## Model-assisted mode (live Claude API)
 
-* **Model-assisted synthesis against the live Claude API.** No `ANTHROPIC_API_KEY` was available. The code path, prompt, schema and refusal/error handling are implemented, and the validator gate it relies on is tested.
+After an API key was added, the stack was restarted in model-assisted mode (`claude-opus-5-5`) and all
+**16/16** end-to-end scenarios passed again. On the USD/SGD question (13.5 s):
+
+* The 8 forecast values were unchanged.
+* Model sentences named and dated their source reports.
+* The validator rejected one model sentence the evidence did not support, and it was dropped.
+
+Refusal and API-error fallbacks were not triggered.
+
+## Not tested / unavailable conditions
 * **Real-site failure modes.** Inaccessible documents, a failing section, quarantined dates, duplicates and malicious documents did not occur on the live site in this window. They are covered only by fixtures.
 * **Browsers.** No cross-browser testing beyond the built-in Chromium pane. No screen-reader audit.

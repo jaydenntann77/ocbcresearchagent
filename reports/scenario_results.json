@@ -153,7 +153,7 @@
     "scenario": "Published-view question",
     "question": "Summarize OCBC's published view on SGD interest rates.",
     "passed": true,
-    "evidence": "status complete; specialists ['Rates']; 2 cited excerpts; first point: On balance, a bond/swap spread (OIS - yield) at 10bps or below is likely seen as supportive.",
+    "evidence": "status complete; specialists ['Rates']; 2 cited excerpts; first point: The available OCBC research on SGD rates is limited to the 27 Oct 2026 Interest Rates Focus: 5Y SGS Auction Preview, which views a bond/swap spread (OIS - yield",
     "note": "",
     "status": "complete",
     "specialists": [
@@ -165,7 +165,7 @@
     "scenario": "Published-view question",
     "question": "What are the main risks identified in the latest credit research?",
     "passed": true,
-    "evidence": "status complete; specialists ['Credit']; 4 cited excerpts; first point: The structural hedge continues to cushion mortgage and deposit-margin pressure, while the key risks are a more competitive deposit market, higher costs and a so",
+    "evidence": "status complete; specialists ['Credit']; 4 cited excerpts; first point: The latest OCBC credit research, the 30 Oct Daily Credit Snapshot, identifies the key risks as a more competitive deposit market, higher costs and a softer UK m",
     "note": "",
     "status": "complete",
     "specialists": [
@@ -177,7 +177,7 @@
     "scenario": "Published-view question",
     "question": "What is OCBC's latest view on JPY and the BoJ?",
     "passed": true,
-    "evidence": "status complete; specialists ['FX', 'Rates']; 8 cited excerpts; first point: More frequent episodes where AI concerns simultaneously weigh on US equities, yields and the USD would strengthen JPY’s value as a portfolio hedge and reinforce",
+    "evidence": "status complete; specialists ['FX', 'Rates']; 6 cited excerpts; first point: On the BoJ, the 30 Oct Daily Treasury Outlook notes the BoJ was expected to hold its policy rate at 1.25% at that day's decision.",
     "note": "",
     "status": "complete",
     "specialists": [
