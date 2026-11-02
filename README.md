@@ -14,6 +14,10 @@ when the question needs them), and then validates the returned evidence. The ans
 The current corpus was ingested on **1 Nov 2026 (SGT)** and covers **26 October – 1 November 2026**.
 It holds 25 documents (see [reports/ingestion_report.md](reports/ingestion_report.md)).
 
+> **Want to make changes?** Read [CONTRIBUTING.md](CONTRIBUTING.md) first. It covers how to run your own
+> copy, how to test a change, and how changes reach the live demo. Pushing to GitHub does **not** update the
+> live site.
+
 ---
 
 ## Quick start
