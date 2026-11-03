@@ -152,7 +152,11 @@ class Specialist:
         for c in task.countries:
             if c in COUNTRY_NAMES:
                 terms.append(COUNTRY_NAMES[c])
-        terms += task.issuers + task.sectors + task.search_terms
+        terms += task.issuers + task.sectors
+        # Rewritten terms widen an existing filter; on their own (a broad question)
+        # they would become the only filter and narrow it, so then they only steer the query.
+        if terms:
+            terms += task.search_terms
         return list(dict.fromkeys(t for t in terms if t))
 
     @staticmethod
@@ -378,10 +382,12 @@ class Specialist:
         if not picked:
             labels = {f.instrument_key: f.instrument_label for f in resp.forecasts}
             what = ", ".join([labels.get(k, k) for k in task.instruments] or task.currencies or task.issuers
-                             or task.sectors or [SPECIALIST_LABELS[self.name]])
+                             or task.sectors)
             detail = (f"The research publishes the {what} forecast shown, but no written commentary explaining it "
                       f"in this window." if resp.forecasts else
-                      f"No written commentary on {what} was found in OCBC research published in this window.")
+                      f"No written commentary on {what} was found in OCBC research published in this window." if what
+                      else f"No relevant {SPECIALIST_LABELS[self.name]} commentary was found in OCBC research "
+                           f"published in this window.")
             resp.coverage.append(Coverage(status="no_relevant_information", detail=detail))
 
     # ------------------------------------------------------------------ entry

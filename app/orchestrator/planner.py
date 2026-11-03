@@ -30,6 +30,13 @@ INFO = {
     "risks": r"\b(risks?|downside|upside|uncertaint\w*|threats?|concerns?|vulnerab\w*)\b",
     "scenarios": r"\b(scenarios?|alternative|bull case|bear case|base case)\b",
 }
+# "Give me an overview of OCBC's views": a request across desks, not a follow-up
+# on the previous instrument. Macro leads, with FX and Rates.
+BROAD_RE = re.compile(r"\b(overview|big picture|round-?up|market wrap|key (themes|views|calls)|main (themes|views)|"
+                      r"house views|research views|across (desks|markets|asset classes)|what is ocbc saying|"
+                      r"what'?s ocbc saying|summar(y|ise|ize) of (ocbc|the research|research))\b", re.I)
+BROAD_DESKS = ["macro", "fx", "rates"]
+
 # Precious metals are Rates & FX coverage (FX Weekly forecasts them); Macro
 # covers energy and industrial commodities.
 PRECIOUS = ("GOLD", "SILVER", "PLATINUM", "PALLADIUM")
@@ -128,7 +135,9 @@ def plan_request(question: str, previous: dict | None, window: tuple[str, str], 
 
     has_entities = bool(pairs or currencies or countries or commodity or issuers or rate_keys)
     inherited = False
-    if previous and (not has_entities and not any(scores.values()) or FOLLOW_UP.search(low) and not has_entities):
+    broad = bool(BROAD_RE.search(q)) and not has_entities
+    if previous and not broad and (not has_entities and not any(scores.values())
+                                   or FOLLOW_UP.search(low) and not has_entities):
         inherited = True
         pairs = pairs or previous.get("instruments", [])
         currencies = currencies or previous.get("currencies", [])
@@ -147,6 +156,11 @@ def plan_request(question: str, previous: dict | None, window: tuple[str, str], 
         info.append("rationale")
 
     selected = [s for s, sc in sorted(scores.items(), key=lambda kv: -kv[1]) if sc > 0]
+    if broad:
+        # An overview of a named desk stays with that desk; otherwise the main three.
+        selected = selected or BROAD_DESKS
+        if not re.search(r"\b(forecasts?|projections?)\b", low):
+            info = ["rationale", "risks"]
     if not selected and (currencies or countries):
         selected = ["macro"]
     lead = selected[0] if selected else None

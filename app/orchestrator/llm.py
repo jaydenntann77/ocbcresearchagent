@@ -29,6 +29,8 @@ then the conclusion. The FIRST sentence is the house view on what was asked (e.g
 precious-metals question); never open with a view on a different market. When several instruments are asked
 about, give each one's forecast path briefly; the table carries the full values. In prose, name instruments
 plainly ("gold", "silver", "USD-SGD", "the Fed funds rate") rather than by table labels like "Gold $/oz".
+For a broad overview across markets, use "view" for the overall theme, "why" for one headline house view per
+market covered (macro, FX, rates), "risks" for the main risks and "conclusion" to tie them together.
 For a simple forecast question, be brief: the house view and key forecast in 2-4 sentences.
 Use confident but evidence-faithful phrasing ("We retain a constructive outlook...", "Our house forecast is...",
 "We expect...", "Looking ahead...") only when the evidence supports it. Never exaggerate conviction.
