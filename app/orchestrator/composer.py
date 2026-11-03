@@ -144,6 +144,7 @@ def compose(question: str, plan, responses: list[SpecialistResponse], validator,
             corpus: dict, use_model: bool = True) -> dict:
     draft, bundle, origin = build_draft(question, responses)
     model_note = None
+    model_removed = []
     mode = "extractive"
     if use_model and llm.status()["available"] and (draft.claims or draft.table_rows):
         try:
@@ -155,14 +156,22 @@ def compose(question: str, plan, responses: list[SpecialistResponse], validator,
             report = validator.validate(DraftAnswer(question=question, claims=model_claims), bundle)
             ok = [c for c, v in zip(model_claims, report.claims) if v.ok]
             dropped = len(model_claims) - len(ok)
+            model_removed = [{"text": c.text, "reasons": v.reasons} for c, v in zip(model_claims, report.claims)
+                             if not v.ok]
             if any(c.section == "direct" for c in ok):
                 mode = "model_assisted"
                 # The model's executive summary replaces the extractive one; the
                 # quotes that summary was built from go back to supporting research.
                 rest = [c.model_copy(update={"section": origin[c.claim_id]}) if c.claim_id in origin else c
                         for c in draft.claims]
-                draft.claims = ([c for c in ok if c.section == "direct"] + [c for c in ok if c.section != "direct"]
-                                + [c for c in rest if c.section != "direct"])
+                summary = [c for c in ok if c.section == "direct"]
+                # The key forecast must be in the summary: if every model sentence
+                # stating it failed validation, lead with the fixed-wording path.
+                values = {r.value for r in draft.table_rows}
+                if values and not any(v in c.text for c in summary for v in values):
+                    summary = [c for c in draft.claims if c.section == "direct" and c.mode == "template"] + summary
+                draft.claims = summary + [c for c in ok if c.section != "direct"] \
+                    + [c for c in rest if c.section != "direct"]
             if dropped:
                 model_note = f"{dropped} model-written sentence(s) failed evidence validation and were removed."
         except llm.ModelUnavailable as exc:
@@ -273,7 +282,8 @@ def compose(question: str, plan, responses: list[SpecialistResponse], validator,
         "conflicts": conflicts, "limitations": limitations, "sources": sources,
         "specialists": [SPECIALIST_LABELS[r.specialist] for r in responses],
         "validation": {"passed_after_removal": True, "removed": removed, "checks": report.checks_run,
-                       "removed_reasons": list(bad_claims.values())[:5] + list(bad_rows.values())[:5]},
+                       "removed_reasons": list(bad_claims.values())[:5] + list(bad_rows.values())[:5],
+                       "model_removed": model_removed},
         "no_evidence_message": None if has_content else NO_FORECAST if "forecast" in plan.info_types
         else "The ingested OCBC research does not contain relevant information for this request.",
     }

@@ -26,6 +26,11 @@ For a simple forecast question, be brief: the house view and key forecast in 2-4
 Use confident but evidence-faithful phrasing ("We retain a constructive outlook...", "Our house forecast is...",
 "We expect...", "Looking ahead...") only when the evidence supports it. Never exaggerate conviction.
 
+State a forecast path plainly, citing the evidence_id of the forecast table, in this form: "Our house forecast has
+<instrument as labelled> at <first value> for <first horizon>, easing/rising to <last value> by <last horizon>."
+Describe drivers and risks in the research's own words. Do not characterise pace or size ("gradual", "sharp",
+"measured", "modest") or add an appreciation/depreciation bias unless the cited excerpt says so.
+
 Implication ("implication"): if a forecast table is shown, one sentence on its key implication. Do NOT repeat
 the table's values; the reader sees the table. Use null when there is no table.
 

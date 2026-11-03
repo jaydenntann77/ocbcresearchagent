@@ -149,7 +149,8 @@ class Validator:
             support_extra = " ".join(
                 f"{c.publication_date or ''} {c.title} {c.data_date or ''}" for c in cited)
             cited_values = [f for f in bundle.forecasts if f.evidence_id in claim.evidence_ids]
-            support_values = " ".join(f"{f.value} {f.horizon_label} {f.instrument_label}" for f in cited_values)
+            support_values = " ".join(f"{f.value} {f.horizon_label} {f.instrument_label} {(f.horizon_end or '')[:4]}"
+                                      for f in cited_values)
             text = _norm(claim.text)
             if cited:
                 if claim.mode == "verbatim":
@@ -157,7 +158,7 @@ class Validator:
                         reasons.append("quoted text does not match the cited excerpt")
                 else:
                     for n in NUM_RE.findall(text):
-                        n2 = n.rstrip("%").lstrip("+")
+                        n2 = n.rstrip(",").rstrip("%").lstrip("+")  # "2026," is 2026 followed by a comma
                         if n2 not in support and n2 not in support_values and n2 not in support_extra:
                             reasons.append(f"number '{n}' is not in the cited evidence")
                     client = claim.mode == "summary" and claim.section in CLIENT_SECTIONS
