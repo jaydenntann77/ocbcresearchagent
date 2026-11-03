@@ -111,3 +111,12 @@ def test_planner_esg_routes_to_macro():
 
 def test_planner_sgd_rates_not_fx():
     assert "fx" not in planner.plan_request("Summarize OCBC's published view on SGD interest rates.", None, WIN).specialists
+
+
+def test_planner_mas_is_an_fx_question():
+    # MAS manages the S$NEER policy band, so FX leads; other desks join only on their own subjects.
+    for q in ("What is the Singapore central bank likely to do next?", "Where is the S$NEER in its policy band?"):
+        p = planner.plan_request(q, None, WIN)
+        assert p.specialists == ["fx"] and p.lead == "fx" and "SGD" in p.currencies
+    assert planner.plan_request("What will MAS do given rising inflation?", None, WIN).specialists == ["fx", "macro"]
+    assert planner.plan_request("MAS policy and the SORA outlook", None, WIN).specialists == ["fx", "rates"]

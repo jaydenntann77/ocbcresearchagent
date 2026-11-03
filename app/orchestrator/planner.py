@@ -30,6 +30,10 @@ INFO = {
     "risks": r"\b(risks?|downside|upside|uncertaint\w*|threats?|concerns?|vulnerab\w*)\b",
     "scenarios": r"\b(scenarios?|alternative|bull case|bear case|base case)\b",
 }
+# MAS steers the Singapore dollar through the S$NEER policy band, not an interest
+# rate, so MAS questions are FX questions about SGD.
+MAS_RE = re.compile(r"\bmas\b|monetary authority of singapore|singapore'?s? central bank|s\$neer|sgd neer|policy band",
+                    re.I)
 FOLLOW_UP = re.compile(r"^(and|what about|how about|also|ok|okay|then|same|that|those|it|for)\b|\b(that|those|it|same)\b", re.I)
 
 
@@ -95,7 +99,14 @@ def plan_request(question: str, previous: dict | None, window: tuple[str, str], 
         scores["macro"] += 1
         if any(c in ("GOLD", "SILVER", "PLATINUM", "PALLADIUM") for c in commodity):
             scores["fx"] += 1
-    rate_keys = _rate_keys(q, currencies, countries) if scores["rates"] else []
+    if MAS_RE.search(q):
+        if "SGD" not in currencies:
+            currencies = currencies + ["SGD"]
+        # "central bank" and "policy" describe MAS here, not a rates or macro request.
+        scores["rates"] -= len(re.findall(r"\bcentral bank\b", low))
+        scores["macro"] -= len(re.findall(r"\bpolicy\b", low))
+        scores["fx"] += 3
+    rate_keys = _rate_keys(q, currencies, countries) if scores["rates"] > 0 else []
     if rate_keys and re.search(r"fed funds|fed|fomc|sofr|sora|ust|treasur|sgs|\d+[- ]?y", low):
         scores["rates"] += 2  # an explicitly named rate instrument is a rates request in its own right
 
