@@ -16,7 +16,7 @@ WORDS = {
     "rates": r"\b(interest rates?|rates? outlook|policy rates?|yields?|ust|treasur\w*|sgs|sora|sofr|fed\b|fomc|fed funds|ecb|boj|boe|"
              r"curve|swaps?|rate (hikes?|cuts?)|hikes?|cuts?|bond yields?|duration|central bank)\b",
     "macro": r"\b(gdp|inflation|growth|econom\w*|macro|recession|fiscal|budget|cpi|pce|pmi|exports?|trade|labou?r|"
-             r"unemployment|commodit\w*|oil|brent|gold|policy|esg|sustainab\w*|climate|carbon|"
+             r"unemployment|commodit\w*|oil|brent|policy|esg|sustainab\w*|climate|carbon|"
              r"outlook for (singapore|china|us|asia))\b",
     "equities": r"\b(equit\w*|stocks?|shares?|sti\b|s&p|nasdaq|nikkei|hang seng|earnings|reits?|sector|target price|dividends?)\b",
     "credit": r"\b(credit|issuers?|spreads?|high yield|investment grade|ratings?|perps?|perpetual|default|bonds? issu\w*|"
@@ -30,6 +30,11 @@ INFO = {
     "risks": r"\b(risks?|downside|upside|uncertaint\w*|threats?|concerns?|vulnerab\w*)\b",
     "scenarios": r"\b(scenarios?|alternative|bull case|bear case|base case)\b",
 }
+# Precious metals are Rates & FX coverage (FX Weekly forecasts them); Macro
+# covers energy and industrial commodities.
+PRECIOUS = ("GOLD", "SILVER", "PLATINUM", "PALLADIUM")
+PRECIOUS_RE = re.compile(r"\bprecious metals?\b|\bbullion\b", re.I)
+
 # MAS steers the Singapore dollar through the S$NEER policy band, not an interest
 # rate, so MAS questions are FX questions about SGD.
 MAS_RE = re.compile(r"\bmas\b|monetary authority of singapore|singapore'?s? central bank|s\$neer|sgd neer|policy band",
@@ -88,6 +93,8 @@ def plan_request(question: str, previous: dict | None, window: tuple[str, str], 
     countries = find_countries(q)
     years = sorted({int(y) for y in re.findall(r"\b(20[2-4]\d)\b", q)})
     commodity = [v for k, v in COMMODITY_KEYS.items() if re.search(rf"\b{k}\b", low)]
+    if PRECIOUS_RE.search(q):
+        commodity = list(dict.fromkeys(commodity + list(PRECIOUS)))
     issuers = re.findall(r"\b([A-Z][A-Za-z&]+(?: [A-Z][A-Za-z&]+){0,3}) \((?:[A-Z0-9 ]{2,10})\)", q)
 
     scores = {s: len(re.findall(rx, low)) for s, rx in WORDS.items()}
@@ -96,9 +103,10 @@ def plan_request(question: str, previous: dict | None, window: tuple[str, str], 
     elif currencies and not re.search(r"\b(interest )?rates?\b|\byields?\b|\bbonds?\b|\bcredit\b", low):
         scores["fx"] += 1  # a currency named on its own ("JPY and the BoJ") is an FX question too
     if commodity:
-        scores["macro"] += 1
-        if any(c in ("GOLD", "SILVER", "PLATINUM", "PALLADIUM") for c in commodity):
-            scores["fx"] += 1
+        if any(c in PRECIOUS for c in commodity):
+            scores["fx"] += 3
+        if any(c not in PRECIOUS for c in commodity):
+            scores["macro"] += 1
     if MAS_RE.search(q):
         if "SGD" not in currencies:
             currencies = currencies + ["SGD"]
@@ -142,11 +150,12 @@ def plan_request(question: str, previous: dict | None, window: tuple[str, str], 
     if not selected and (currencies or countries):
         selected = ["macro"]
     lead = selected[0] if selected else None
-    if pairs and "fx" in selected:
+    if (pairs or any(c in PRECIOUS for c in commodity)) and "fx" in selected:
         lead = "fx"
         # A straightforward FX request goes to FX alone; others join only when
         # the question itself asks about their domain.
-        selected = ["fx"] + [s for s in selected if s != "fx" and scores[s] >= 2]
+        need = 2 if pairs else 1  # a metals question naming oil or inflation also needs Macro
+        selected = ["fx"] + [s for s in selected if s != "fx" and scores[s] >= need]
     instruments = list(dict.fromkeys(pairs + rate_keys + commodity))
     return Plan(question=q, specialists=selected[:3], lead=lead, instruments=instruments, currencies=currencies,
                 countries=countries, issuers=issuers, sectors=[], horizon=horizon, horizon_years=years,

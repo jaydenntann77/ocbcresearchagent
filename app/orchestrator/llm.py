@@ -23,12 +23,18 @@ Executive summary ("summary"): 4 to 8 sentences that directly answer the questio
 For an outlook or market-view question, follow this order:
   1. What we think.  2. Where we expect the instrument or market to move.  3. Why (the two or three most
   important drivers).  4. What could reinforce or challenge the view.  5. A clear concluding view.
+Tag every summary sentence with its part: "view" (1), "path" (2), "why" (3), "risks" (4) or "conclusion" (5),
+and write them in that order. They are shown as short paragraphs: view and path together, then why, then risks,
+then the conclusion. The FIRST sentence is the house view on what was asked (e.g. on precious metals for a
+precious-metals question); never open with a view on a different market. When several instruments are asked
+about, give each one's forecast path briefly; the table carries the full values. In prose, name instruments
+plainly ("gold", "silver", "USD-SGD", "the Fed funds rate") rather than by table labels like "Gold $/oz".
 For a simple forecast question, be brief: the house view and key forecast in 2-4 sentences.
 Use confident but evidence-faithful phrasing ("We retain a constructive outlook...", "Our house forecast is...",
 "We expect...", "Looking ahead...") only when the evidence supports it. Never exaggerate conviction.
 
 State a forecast path plainly, citing the evidence_id of the forecast table, in this form: "Our house forecast has
-<instrument as labelled> at <first value> for <first horizon>, easing/rising to <last value> by <last horizon>."
+<instrument> at <first value> for <first horizon>, easing/rising to <last value> by <last horizon>."
 Describe drivers and risks in the research's own words. Do not characterise pace or size ("gradual", "sharp",
 "measured", "modest") or add an appreciation/depreciation bias unless the cited excerpt says so.
 
@@ -52,12 +58,17 @@ SENTENCE = {
     "type": "object", "additionalProperties": False, "required": ["text", "evidence_ids"],
     "properties": {"text": {"type": "string"}, "evidence_ids": {"type": "array", "items": {"type": "string"}}},
 }
+SUMMARY_SENTENCE = {
+    "type": "object", "additionalProperties": False, "required": ["part", "text", "evidence_ids"],
+    "properties": {"part": {"type": "string", "enum": ["view", "path", "why", "risks", "conclusion"]},
+                   "text": {"type": "string"}, "evidence_ids": {"type": "array", "items": {"type": "string"}}},
+}
 SCHEMA = {
     "type": "object",
     "additionalProperties": False,
     "required": ["summary", "implication"],
     "properties": {
-        "summary": {"type": "array", "items": SENTENCE},
+        "summary": {"type": "array", "items": SUMMARY_SENTENCE},
         "implication": {"anyOf": [SENTENCE, {"type": "null"}]},
     },
 }
@@ -152,7 +163,7 @@ def synthesize(question: str, findings: list[dict], evidence: list[dict], table_
         data = json.loads(text)
     except json.JSONDecodeError as exc:
         raise ModelUnavailable("Model returned malformed output; extractive answer shown.") from exc
-    out = [{"section": "direct", "text": x["text"], "evidence_ids": x["evidence_ids"]}
+    out = [{"section": "direct", "text": x["text"], "evidence_ids": x["evidence_ids"], "part": x.get("part")}
            for x in data.get("summary", [])[:8]]
     if data.get("implication") and table_rows:
         imp = data["implication"]

@@ -134,6 +134,7 @@ class Claim(Strict):
     evidence_ids: list[str]
     mode: Literal["verbatim", "summary", "template"] = "template"
     specialist: str | None = None
+    part: Literal["view", "path", "why", "risks", "conclusion"] | None = None  # executive-summary structure
 
 
 class TableRow(Strict):

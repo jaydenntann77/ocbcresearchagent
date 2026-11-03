@@ -48,8 +48,11 @@ def _one_representation(question: str, forecasts: list) -> list:
 def _path_sentence(fvs: list) -> str:
     """Template sentence naming the start and end of a published path (not every value)."""
     first, last = fvs[0], fvs[-1]
+    name = first.instrument_label
+    if first.unit and name.endswith(first.unit):  # "Gold $/oz" -> "gold"
+        name = name[:-len(first.unit)].strip().lower()
     if len(fvs) == 1:
-        return f"Our house forecast for {first.instrument_label} is {first.value} for {first.horizon_label}."
+        return f"Our house forecast for {name} is {first.value} for {first.horizon_label}."
     # No comma straight after a horizon label: the validator would read "Dec-26," as a number.
     try:
         move = float(last.value.rstrip("%")) - float(first.value.rstrip("%"))
@@ -57,24 +60,33 @@ def _path_sentence(fvs: list) -> str:
     except ValueError:
         verb = "moving"
     if not verb:
-        return (f"Our house forecast has {first.instrument_label} unchanged at {first.value} "
+        return (f"Our house forecast has {name} unchanged at {first.value} "
                 f"from {first.horizon_label} to {last.horizon_label}.")
-    return (f"Our house forecast has {first.instrument_label} {verb} from {first.value} in {first.horizon_label} "
+    return (f"Our house forecast has {name} {verb} from {first.value} in {first.horizon_label} "
             f"to {last.value} by {last.horizon_label}.")
 
 
+PART_ORDER = {"view": 0, "path": 1, "why": 2, "risks": 3, "conclusion": 4}
+
+
 def _summary(claims: list[Claim], path_claims: list[Claim]) -> list[Claim]:
-    """Executive summary from validated material: the forecast path, then the
-    house-view rationale (first-person views first), then one risk."""
+    """Executive summary from validated material, in the house order: what we
+    think, where the market goes, why, what could change the view."""
     rationale = [c for c in claims if c.section == "rationale"]
     risks = [c for c in claims if c.section in ("risks", "scenarios")]
     rationale.sort(key=lambda c: not HOUSE_VIEW_RE.search(c.text))
+    view = rationale[:1] if rationale and HOUSE_VIEW_RE.search(rationale[0].text) else []
+    rest = rationale[len(view):]
     if path_claims:
-        picked = path_claims[:3] + rationale[:2] + risks[:1]
+        why, risk = rest[:1], risks[:1]
     else:  # a view or risk question: the findings are the answer
-        drivers = rationale[:3]
-        picked = drivers + risks[:max(1, 4 - len(drivers))]
-    return picked[:SUMMARY_MAX]
+        why = rest[:3 - len(view)]
+        risk = risks[:max(1, 4 - len(view) - len(why))]
+    tagged = ([c.model_copy(update={"part": "view"}) for c in view]
+              + [c.model_copy(update={"part": "path"}) for c in path_claims[:4]]
+              + [c.model_copy(update={"part": "why"}) for c in why]
+              + [c.model_copy(update={"part": "risks"}) for c in risk])
+    return tagged[:SUMMARY_MAX]
 
 
 def build_draft(question: str, responses: list[SpecialistResponse]):
@@ -130,10 +142,10 @@ def build_draft(question: str, responses: list[SpecialistResponse]):
             add(section, text, f.evidence_ids, "verbatim", r.specialist)
     # Executive summary: the chosen claims move into the "direct" section, in order.
     summary = _summary(claims, paths)
-    picked = {id(c) for c in summary}
+    picked = {c.claim_id for c in summary}
     origin = {f"S{i + 1}": c.section for i, c in enumerate(summary)}
     claims[:] = [c.model_copy(update={"section": "direct", "claim_id": f"S{i + 1}"}) for i, c in enumerate(summary)] \
-        + [c for c in claims if id(c) not in picked]
+        + [c for c in claims if c.claim_id not in picked]
     draft = DraftAnswer(question=question, claims=claims, table_rows=rows)
     all_fc = [f for r in responses for f in r.forecasts]
     bundle = EvidenceBundle(evidence=list(evidence.values()), forecasts=all_fc)
@@ -152,7 +164,8 @@ def compose(question: str, plan, responses: list[SpecialistResponse], validator,
                 question, [f.model_dump() for r in responses for f in r.findings],
                 [e.model_dump() for e in bundle.evidence], [r.model_dump() for r in draft.table_rows])
             model_claims = [Claim(claim_id=f"M{i + 1}", section=s["section"], text=s["text"],
-                                  evidence_ids=s["evidence_ids"], mode="summary") for i, s in enumerate(sentences)]
+                                  evidence_ids=s["evidence_ids"], mode="summary", part=s.get("part"))
+                            for i, s in enumerate(sentences)]
             report = validator.validate(DraftAnswer(question=question, claims=model_claims), bundle)
             ok = [c for c, v in zip(model_claims, report.claims) if v.ok]
             dropped = len(model_claims) - len(ok)
@@ -164,7 +177,7 @@ def compose(question: str, plan, responses: list[SpecialistResponse], validator,
                 # quotes that summary was built from go back to supporting research.
                 rest = [c.model_copy(update={"section": origin[c.claim_id]}) if c.claim_id in origin else c
                         for c in draft.claims]
-                summary = [c for c in ok if c.section == "direct"]
+                summary = sorted((c for c in ok if c.section == "direct"), key=lambda c: PART_ORDER.get(c.part, 0))
                 # The key forecast must be in the summary: if every model sentence
                 # stating it failed validation, lead with the fixed-wording path.
                 values = {r.value for r in draft.table_rows}
@@ -197,7 +210,7 @@ def compose(question: str, plan, responses: list[SpecialistResponse], validator,
 
     def claim_out(c: Claim):
         return {"text": c.text, "mode": c.mode, "citations": cite(c.evidence_ids),
-                "specialist": SPECIALIST_LABELS.get(c.specialist or "", None)}
+                "specialist": SPECIALIST_LABELS.get(c.specialist or "", None), "part": c.part}
 
     sections = {s: [] for s in ("direct", "rationale", "risks", "scenarios", "commentary")}
     for c in claims:

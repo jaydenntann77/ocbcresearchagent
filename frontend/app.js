@@ -295,6 +295,19 @@ function claimList(answer, items, cls = "") {
 // sources and the audit trail collapsed underneath.
 // Gaps in what was asked lead the summary, so a missing forecast is never buried.
 const LEAD_LIMITS = new Set(["horizon_not_covered"]);
+// Executive summary paragraphs: view and path together, then why, risks, conclusion.
+const PART_PARA = { view: 0, path: 0, why: 1, risks: 2, conclusion: 3 };
+function summaryParagraphs(direct) {
+  const paras = [];
+  let last = null;
+  for (const c of direct) {
+    const p = PART_PARA[c.part] ?? (last ?? 0);
+    if (p !== last || !paras.length) paras.push([]);
+    paras[paras.length - 1].push(c);
+    last = p;
+  }
+  return paras;
+}
 const MATERIAL_LIMITS = new Set(["horizon_not_covered", "no_relevant_information", "document_inaccessible",
   "extraction_failed", "conflicting_sources", "missing_coverage", "error", "horizon_passed"]);
 
@@ -317,9 +330,17 @@ function tableGroups(rows) {
   return groups;
 }
 
+function instName(inst, unit) {
+  // "Gold $/oz" with unit "$/oz" -> "Gold": the unit is shown once, separately.
+  return unit && inst.endsWith(unit) ? inst.slice(0, -unit.length).trim() : inst;
+}
+
 function tableTitle(rows) {
-  const names = [...new Set(rows.map((r) => r.instrument))];
-  return `${names.length > 3 ? names.slice(0, 3).join(", ") + " and others" : names.join(", ")} forecast`;
+  const names = [...new Set(rows.map((r) => instName(r.instrument, r.unit)))];
+  const units = [...new Set(rows.map((r) => r.unit).filter(Boolean))];
+  const list = names.length > 4 ? names.slice(0, 4).join(", ") + " and others"
+    : names.length > 1 ? names.slice(0, -1).join(", ") + " and " + names[names.length - 1] : names[0];
+  return `${list} forecast${units.length === 1 ? ` (${units[0]})` : ""}`;
 }
 
 function asOfLines(rows) {
@@ -336,7 +357,8 @@ function renderTable(answer) {
   const tables = tableGroups(answer.table).map((g) => {
     const head = el("tr", {}, el("th", { text: "" }), g.horizons.map((h) => el("th", { class: "num", text: h })), el("th", { text: "" }));
     const body = el("tbody", {}, g.rows.map((r) => el("tr", {},
-      el("td", {}, r.instrument, r.unit ? el("span", { class: "muted", text: ` (${r.unit})` }) : null),
+      el("td", {}, instName(r.instrument, r.unit), r.unit && !tableTitle(answer.table).endsWith(`(${r.unit})`)
+        ? el("span", { class: "muted", text: ` (${r.unit})` }) : null),
       g.horizons.map((h) => {
         const c = r.cells.get(h);
         return el("td", { class: "num", title: c && c.horizon_passed ? "This horizon has passed" : "" },
@@ -372,7 +394,8 @@ function renderAnswer(a) {
   const gaps = (a.limitations || []).filter((l) => LEAD_LIMITS.has(l.type)).map((l) => l.text);
   if (a.direct && a.direct.length) {
     body.append(el("div", { class: "section direct" }, el("h3", { text: "Executive summary" }),
-      el("p", { class: "lead" }, gaps.map((g) => g + " "), a.direct.flatMap((c) => [c.text, " ", ...citeChips(a, c.citations), " "]))));
+      summaryParagraphs(a.direct).map((para, i) => el("p", { class: "lead" }, i === 0 ? gaps.map((g) => g + " ") : null,
+        para.flatMap((c) => [c.text, " ", ...citeChips(a, c.citations), " "])))));
   } else if (a.no_evidence_message) {
     body.append(el("div", { class: "section direct" }, el("h3", { text: "Executive summary" }), el("p", { class: "lead", text: a.no_evidence_message })));
   }
@@ -457,7 +480,7 @@ function tableMarkdownRows(a) {
     lines.push(`| ${g.kind === "relative" ? "Horizon (as published)" : ""} | ${g.horizons.join(" | ")} |`,
       `|---|${g.horizons.map(() => "--:").join("|")}|`);
     for (const r of g.rows) {
-      lines.push(`| ${r.instrument}${r.unit ? ` (${r.unit})` : ""} | ${g.horizons.map((h) => {
+      lines.push(`| ${instName(r.instrument, r.unit)}${r.unit && !tableTitle(a.table).endsWith(`(${r.unit})`) ? ` (${r.unit})` : ""} | ${g.horizons.map((h) => {
         const c = r.cells.get(h);
         return c ? c.value + (c.horizon_passed ? " (passed)" : "") : "—";
       }).join(" | ")} |`);
@@ -479,8 +502,9 @@ function answerMarkdown(a) {
   const out = [];
   for (const n of a.notices || []) out.push(`Note: ${n.text}`, "");
   const gaps = a.direct.length ? a.limitations.filter((l) => LEAD_LIMITS.has(l.type)).map((l) => l.text) : [];
-  if (a.direct.length) out.push([...gaps, ...a.direct.map((c) => `${c.text} ${refs(a, c.citations)}`.trim())].join(" "), "");
-  else if (a.no_evidence_message) out.push(a.no_evidence_message, "");
+  summaryParagraphs(a.direct).forEach((para, i) =>
+    out.push([...(i === 0 ? gaps : []), ...para.map((c) => `${c.text} ${refs(a, c.citations)}`.trim())].join(" "), ""));
+  if (!a.direct.length && a.no_evidence_message) out.push(a.no_evidence_message, "");
   const implication = a.table_notes.filter((n) => n.mode !== "verbatim");
   if (a.table.length) out.push(...tableMarkdownRows(a), "");
   if (implication.length) out.push(implication.map((c) => `${c.text} ${refs(a, c.citations)}`).join(" "), "");
