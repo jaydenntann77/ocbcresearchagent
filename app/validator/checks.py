@@ -25,6 +25,14 @@ reports published publishes view views said says notes noted""".split())
 TEMPLATE_WORDS = set("""forecast forecasts horizon horizons published latest ingested contains contain verified table tables
 values value quarter quarters ending path through relative months month year years shows show listed provides provide
 instrument pair pairs page pages trajectory bias update stated available corpus window""".split())
+# The executive summary and table implication are client-facing commentary that
+# translates research language, so they need less verbatim overlap. Their
+# numbers, pair direction and recommendation language are checked as strictly.
+CLIENT_SECTIONS = {"direct", "commentary"}
+CLIENT_OVERLAP = 0.35
+OVERLAP = 0.6
+HOUSE_VOICE = set("""house expect expects expected retain retains view views outlook looking ahead remain remains
+believe overall conclusion""".split())
 
 
 def _norm(s: str) -> str:
@@ -152,11 +160,12 @@ class Validator:
                         n2 = n.rstrip("%").lstrip("+")
                         if n2 not in support and n2 not in support_values and n2 not in support_extra:
                             reasons.append(f"number '{n}' is not in the cited evidence")
-                    words = _words(text) - TEMPLATE_WORDS
+                    client = claim.mode == "summary" and claim.section in CLIENT_SECTIONS
+                    words = _words(text) - TEMPLATE_WORDS - (HOUSE_VOICE if client else set())
                     if claim.mode == "summary" and words:
                         supported = _words(support + " " + support_extra + " " + support_values)
                         ratio = len(words & supported) / len(words)
-                        if ratio < 0.6:
+                        if ratio < (CLIENT_OVERLAP if client else OVERLAP):
                             reasons.append(f"wording not supported by cited excerpts (overlap {ratio:.0%})")
                     # Template sentences are fixed application wording around
                     # extracted values; their numbers, direction and language
