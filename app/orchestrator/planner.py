@@ -160,7 +160,8 @@ def objective_for(spec: str, plan: Plan) -> str:
 
 
 def build_tasks(plan: Plan, window: tuple[str, str], expanded: bool, specialists: list[str] | None = None,
-                known_gaps: list[str] | None = None, follow_up_of: str | None = None) -> list[SpecialistTask]:
+                known_gaps: list[str] | None = None, follow_up_of: str | None = None,
+                search_terms: list[str] | None = None) -> list[SpecialistTask]:
     tasks = []
     for spec in specialists or plan.specialists:
         instruments = plan.instruments
@@ -180,5 +181,5 @@ def build_tasks(plan: Plan, window: tuple[str, str], expanded: bool, specialists
             horizon_years=plan.horizon_years,
             info_types=[i for i in plan.info_types if i != "forecast" or instruments] or ["rationale"],
             corpus=CorpusConstraints(window_start=window[0], window_end=window[1], expanded_range=expanded),
-            known_gaps=known_gaps or [], follow_up_of=follow_up_of))
+            known_gaps=known_gaps or [], follow_up_of=follow_up_of, search_terms=search_terms or []))
     return tasks

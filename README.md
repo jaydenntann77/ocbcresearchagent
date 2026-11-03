@@ -58,6 +58,9 @@ That is still a complete, validated answer, but nobody writes a synthesis. Set `
 restart to switch on **model-assisted synthesis**, which works like this:
 
 * it uses `claude-opus-5-5` with structured JSON output and server-side refusal fallback, and has no tools
+* before searching, `claude-haiku-5-5` lists the research's own terms for the question ("the Fed" → FOMC, Fed funds,
+  policy rate; "Singdollar" → SGD, S$NEER). The specialists add them to their search, and a question that names no
+  instrument is planned again with them. The model sees only the question. Set `RA_QUERY_REWRITE=0` to turn it off
 * the model sees only specialist evidence, wrapped as untrusted data
 * every model sentence must cite evidence IDs and goes through the validator; failing sentences are dropped
 

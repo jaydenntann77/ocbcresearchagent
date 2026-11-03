@@ -427,7 +427,7 @@ function renderAnswer(a) {
         el("span", {}, "Answer generated ", el("b", { text: a.generated_label })),
         fr.expanded ? el("span", { class: "badge warn", text: "Expanded date range" }) : null) : null,
       a.mode && a.mode !== "none" ? el("div", { text: `Mode: ${a.mode === "model_assisted" ? "model-assisted summary (validated)" : "extractive (summary quotes the research and uses fixed wording around forecast values)"} · specialists: ${(a.specialists || []).join(", ") || "—"}` }) : null,
-      a.plan ? el("div", { text: `Lead specialist: ${a.plan.lead || "—"} · consulted: ${a.plan.specialists.join(", ")} · instruments: ${(a.plan.instruments || []).join(", ") || "—"} · horizon: ${a.plan.horizon || "—"} · requested: ${a.plan.info_types.join(", ")}${a.plan.inherited_context ? " · follow-up context inherited" : ""}` }) : null,
+      a.plan ? el("div", { text: `Lead specialist: ${a.plan.lead || "—"} · consulted: ${a.plan.specialists.join(", ")} · instruments: ${(a.plan.instruments || []).join(", ") || "—"} · horizon: ${a.plan.horizon || "—"} · requested: ${a.plan.info_types.join(", ")}${a.plan.inherited_context ? " · follow-up context inherited" : ""}${(a.plan.search_terms || []).length ? ` · search terms added: ${a.plan.search_terms.join(", ")}` : ""}` }) : null,
       a.validation ? el("div", { text: `Validation checks: ${a.validation.checks.join(", ")}. Removed: ${a.validation.removed}.` }) : null,
       minor.length ? el("ul", { class: "limits" }, minor.map((l) => {
         const [lab, cls] = LIMIT_LABEL[l.type] || [l.type, ""];

@@ -87,6 +87,10 @@ EVIDENCE_SIGNING_KEY = env("RA_EVIDENCE_SIGNING_KEY")    # research + validator 
 
 MODEL_NAME = env("RA_MODEL", "claude-opus-5-5")
 MODEL_EFFORT = env("RA_MODEL_EFFORT", "medium")
+# Before searching, a small model lists the research's own terms for the question
+# (Fed -> FOMC, Fed funds). Set RA_QUERY_REWRITE=0 to turn it off.
+QUERY_MODEL = env("RA_QUERY_MODEL", "claude-haiku-5-5")
+QUERY_REWRITE = env("RA_QUERY_REWRITE", "1") != "0"
 MODEL_API_HOST = "api.anthropic.com"
 
 

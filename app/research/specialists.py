@@ -152,7 +152,7 @@ class Specialist:
         for c in task.countries:
             if c in COUNTRY_NAMES:
                 terms.append(COUNTRY_NAMES[c])
-        terms += task.issuers + task.sectors
+        terms += task.issuers + task.sectors + task.search_terms
         return list(dict.fromkeys(t for t in terms if t))
 
     @staticmethod
@@ -300,7 +300,7 @@ class Specialist:
     # ------------------------------------------------------------------ narrative
     def _narrative(self, task: SpecialistTask, handles, resp: SpecialistResponse):
         terms = self.focus_terms(task)
-        query = f"{task.objective} {task.original_question} {SPECIALIST_FOCUS[self.name]}"
+        query = f"{task.objective} {task.original_question} {' '.join(task.search_terms)} {SPECIALIST_FOCUS[self.name]}"
         exact = [t for t in terms if re.fullmatch(r"[A-Z$/\-]{3,8}", t)]
         want_risks = "risks" in task.info_types
         want_rationale = any(t in task.info_types for t in ("rationale", "commentary", "forecast"))

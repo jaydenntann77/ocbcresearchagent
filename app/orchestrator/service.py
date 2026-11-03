@@ -98,14 +98,21 @@ def answer_question(question: str, state: dict, emit) -> tuple[dict, dict]:
         return _simple(question, "error", "The research knowledge base has not been built yet. An administrator "
                                           "needs to run ingestion (Corpus status → Refresh).", notices, corpus), state
     emit("Understanding the request")
+    terms = llm.search_terms(q)
     plan = planner.plan_request(q, state.get("last_plan"), (w["start"], w["end"]), bool(w.get("expanded")))
+    if not plan.specialists and terms:
+        # Plain-English questions ("what is the Singapore central bank doing?") name no
+        # instrument; plan again with the research's own terms added.
+        plan = planner.plan_request(f"{q} ({', '.join(terms)})", state.get("last_plan"), (w["start"], w["end"]),
+                                    bool(w.get("expanded")))
+        plan.question = q
     if not plan.specialists:
         msg = ("I couldn't identify an instrument, market or sector to research in that request. "
                "Try naming a currency pair, rate, country, issuer or sector.")
         if checks["web"] or checks["advice"]:
             msg = "No research question remained after removing the parts this assistant cannot do. " + msg
         return _simple(question, "clarify", msg, notices, corpus), state
-    tasks = planner.build_tasks(plan, (w["start"], w["end"]), bool(w.get("expanded")))
+    tasks = planner.build_tasks(plan, (w["start"], w["end"]), bool(w.get("expanded")), search_terms=terms)
     responses = []
 
     def run(task):
@@ -127,7 +134,7 @@ def answer_question(question: str, state: dict, emit) -> tuple[dict, dict]:
         if len(rationale) < 2 or lead.status in ("no_evidence", "error"):
             gaps = [f"FX research returned {len(rationale)} rationale passage(s) for {', '.join(plan.instruments)}"]
             extra = planner.build_tasks(plan, (w["start"], w["end"]), bool(w.get("expanded")), ["macro"],
-                                        known_gaps=gaps, follow_up_of=lead.task_id)
+                                        known_gaps=gaps, follow_up_of=lead.task_id, search_terms=terms)
             emit("Requesting supporting macro research")
             responses += [run(t) for t in extra]
     use_model = llm.status()["available"]
@@ -144,7 +151,8 @@ def answer_question(question: str, state: dict, emit) -> tuple[dict, dict]:
                                           f"rather than shown unvalidated. Please retry shortly.", notices, corpus), state
     answer["plan"] = {"specialists": [SPECIALIST_LABELS[r.specialist] for r in responses], "lead":
                       SPECIALIST_LABELS.get(plan.lead or "", None), "instruments": plan.instruments,
-                      "horizon": plan.horizon, "info_types": plan.info_types, "inherited_context": plan.inherited}
+                      "horizon": plan.horizon, "info_types": plan.info_types, "inherited_context": plan.inherited,
+                      "search_terms": terms}
     return answer, {"last_plan": plan.to_state()}
 
 

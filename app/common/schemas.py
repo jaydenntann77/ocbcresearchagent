@@ -47,6 +47,7 @@ class SpecialistTask(Strict):
         "Forecast values must be copied exactly with their original horizon labels and units.")
     known_gaps: list[str] = []
     follow_up_of: str | None = None
+    search_terms: list[str] = []         # the research's own wording for the question (query rewrite)
 
 
 # ---------------------------------------------------------------- evidence

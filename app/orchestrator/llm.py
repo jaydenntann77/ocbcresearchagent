@@ -8,6 +8,7 @@ orchestrator runs in extractive mode and says so."""
 from __future__ import annotations
 
 import json
+import re
 
 from app.common import config
 
@@ -62,8 +63,47 @@ SCHEMA = {
 }
 
 
+TERMS_SYSTEM = """You prepare search terms for OCBC Global Markets research (FX Weekly, Daily Market Outlook,
+Daily Treasury Outlook, Weekly Macro Views, rates and credit notes).
+Given a salesperson's question, list up to 10 short terms or phrases that this research itself would use for the
+SAME topics: official names, abbreviations and instrument labels. Examples: "the Fed" -> "FOMC", "Fed funds",
+"policy rate"; "Singapore central bank" -> "MAS", "S$NEER", "policy band"; "Singdollar" -> "SGD";
+"US 10-year" -> "10Y UST", "Treasury yields".
+Only cover what the question asks about. Do not add other topics, views, numbers or dates."""
+TERMS_SCHEMA = {
+    "type": "object", "additionalProperties": False, "required": ["terms"],
+    "properties": {"terms": {"type": "array", "items": {"type": "string"}}},
+}
+TERM_RE = re.compile(r"[A-Za-z0-9$&/%.' -]{2,40}")
+
+
 class ModelUnavailable(Exception):
     pass
+
+
+def search_terms(question: str) -> list[str]:
+    """The research's own wording for the question, to widen the specialists'
+    search. Best effort: returns [] without a credential or on any error."""
+    if not (config.QUERY_REWRITE and config.model_credentials_present()):
+        return []
+    import anthropic
+
+    try:
+        resp = anthropic.Anthropic(max_retries=1, timeout=20).beta.messages.create(
+            model=config.QUERY_MODEL, max_tokens=300, system=TERMS_SYSTEM,
+            messages=[{"role": "user", "content": f"Question: {question}"}],
+            output_config={"format": {"type": "json_schema", "schema": TERMS_SCHEMA}},
+        )
+        text = next((b.text for b in resp.content if b.type == "text"), "")
+        terms = json.loads(text).get("terms", [])
+    except (anthropic.AnthropicError, json.JSONDecodeError, AttributeError):
+        return []
+    out: dict[str, str] = {}
+    for t in terms:
+        t = " ".join(str(t).split())
+        if TERM_RE.fullmatch(t):
+            out.setdefault(t.lower(), t)
+    return list(out.values())[:10]
 
 
 def status() -> dict:
