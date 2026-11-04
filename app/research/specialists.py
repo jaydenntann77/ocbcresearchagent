@@ -15,8 +15,8 @@ import sqlite3
 from datetime import date
 
 from app.common import config, embedding
-from app.common.instruments import CURRENCY_NAMES, pair_aliases
-from app.common.schemas import (Conflict, Coverage, Evidence, Finding, ForecastValue, SpecialistResponse,
+from app.common.instruments import CURRENCY_NAMES, instrument_aliases
+from app.common.schemas import (SPECIALIST_LABELS, Conflict, Coverage, Evidence, Finding, ForecastValue, SpecialistResponse,
                                 SpecialistTask)
 from app.common.security import evidence_signature
 from app.common.timeutil import today_sgt
@@ -138,7 +138,7 @@ class Specialist:
     def focus_terms(self, task: SpecialistTask) -> list[str]:
         terms: list[str] = []
         for key in task.instruments:
-            terms += pair_aliases(key)
+            terms += instrument_aliases(key)
         for cur in task.currencies:
             if self.name == "rates":
                 # A bare currency code is FX vocabulary; rates findings must
@@ -153,6 +153,10 @@ class Specialist:
             if c in COUNTRY_NAMES:
                 terms.append(COUNTRY_NAMES[c])
         terms += task.issuers + task.sectors
+        # Rewritten terms widen an existing filter; on their own (a broad question)
+        # they would become the only filter and narrow it, so then they only steer the query.
+        if terms:
+            terms += task.search_terms
         return list(dict.fromkeys(t for t in terms if t))
 
     @staticmethod
@@ -300,7 +304,7 @@ class Specialist:
     # ------------------------------------------------------------------ narrative
     def _narrative(self, task: SpecialistTask, handles, resp: SpecialistResponse):
         terms = self.focus_terms(task)
-        query = f"{task.objective} {task.original_question} {SPECIALIST_FOCUS[self.name]}"
+        query = f"{task.objective} {task.original_question} {' '.join(task.search_terms)} {SPECIALIST_FOCUS[self.name]}"
         exact = [t for t in terms if re.fullmatch(r"[A-Z$/\-]{3,8}", t)]
         want_risks = "risks" in task.info_types
         want_rationale = any(t in task.info_types for t in ("rationale", "commentary", "forecast"))
@@ -376,10 +380,15 @@ class Specialist:
                                          statement_mode="verbatim", evidence_ids=[ev.evidence_id],
                                          instruments=task.instruments))
         if not picked:
-            what = ", ".join(task.instruments or task.currencies or task.issuers or task.sectors or [self.name])
-            resp.coverage.append(Coverage(status="no_relevant_information",
-                                          detail=f"No relevant {self.name.upper()} commentary on {what} was found in the "
-                                                 f"ingested OCBC research for this window."))
+            labels = {f.instrument_key: f.instrument_label for f in resp.forecasts}
+            what = ", ".join([labels.get(k, k) for k in task.instruments] or task.currencies or task.issuers
+                             or task.sectors)
+            detail = (f"The research publishes the {what} forecast shown, but no written commentary explaining it "
+                      f"in this window." if resp.forecasts else
+                      f"No written commentary on {what} was found in OCBC research published in this window." if what
+                      else f"No relevant {SPECIALIST_LABELS[self.name]} commentary was found in OCBC research "
+                           f"published in this window.")
+            resp.coverage.append(Coverage(status="no_relevant_information", detail=detail))
 
     # ------------------------------------------------------------------ entry
     def run(self, task: SpecialistTask) -> SpecialistResponse:

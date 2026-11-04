@@ -290,44 +290,100 @@ function claimList(answer, items, cls = "") {
   }));
 }
 
-function renderTable(answer) {
-  const rows = answer.table;
-  const abs = rows.filter((r) => r.horizon_kind === "absolute");
-  const rel = rows.filter((r) => r.horizon_kind !== "absolute");
-  const head = el("tr", {}, ["Instrument", "Forecast horizon", "Published forecast", "Unit / quotation", "Scenario", "Publication date", "Source"]
-    .map((h, i) => el("th", { class: i === 2 ? "num" : "", text: h })));
-  const body = el("tbody");
-  const addGroup = (label, list) => {
-    if (!list.length) return;
-    if (abs.length && rel.length) body.append(el("tr", { class: "group" }, el("td", { colspan: "7", text: label })));
+// Client-facing layout: executive summary, ONE forecast table (horizons across,
+// one instrument per row), the key implication, then supporting research,
+// sources and the audit trail collapsed underneath.
+// Gaps in what was asked lead the summary, so a missing forecast is never buried.
+const LEAD_LIMITS = new Set(["horizon_not_covered"]);
+// Executive summary paragraphs: view and path together, then why, risks, conclusion.
+const PART_PARA = { view: 0, path: 0, why: 1, risks: 2, conclusion: 3 };
+function summaryParagraphs(direct) {
+  const paras = [];
+  let last = null;
+  for (const c of direct) {
+    const p = PART_PARA[c.part] ?? (last ?? 0);
+    if (p !== last || !paras.length) paras.push([]);
+    paras[paras.length - 1].push(c);
+    last = p;
+  }
+  return paras;
+}
+const MATERIAL_LIMITS = new Set(["horizon_not_covered", "no_relevant_information", "document_inaccessible",
+  "extraction_failed", "conflicting_sources", "missing_coverage", "error", "horizon_passed"]);
+
+function tableGroups(rows) {
+  // One table per horizon kind; columns keep the published order of horizons.
+  const groups = [];
+  for (const kind of ["absolute", "relative"]) {
+    const list = rows.filter((r) => (r.horizon_kind === "absolute") === (kind === "absolute"));
+    if (!list.length) continue;
+    const horizons = [...new Set(list.map((r) => r.horizon))];
+    const byInst = new Map();
     for (const r of list) {
-      body.append(el("tr", {},
-        el("td", { text: r.instrument }),
-        el("td", {}, r.horizon, r.horizon_passed ? el("span", { class: "badge warn", text: "passed", style: "margin-left:6px" }) : null),
-        el("td", { class: "num", text: r.value }),
-        el("td", { class: "muted", text: r.unit || `${r.quotation} (as quoted)` }),
-        el("td", { class: "muted", text: r.scenario }),
-        el("td", { class: "muted", text: r.publication_label }),
-        el("td", {}, citeChips(answer, r.citations))));
+      if (!byInst.has(r.instrument)) byInst.set(r.instrument, { instrument: r.instrument, unit: r.unit, cells: new Map(), cites: new Set() });
+      const g = byInst.get(r.instrument);
+      g.cells.set(r.horizon, r);
+      r.citations.forEach((c) => g.cites.add(c));
     }
-  };
-  addGroup("Calendar horizons", abs);
-  addGroup("Relative horizons (as published)", rel);
-  const dataDates = [...new Set(rows.map((r) => r.data_date).filter(Boolean))];
+    groups.push({ kind, horizons, rows: [...byInst.values()] });
+  }
+  return groups;
+}
+
+function instName(inst, unit) {
+  // "Gold $/oz" with unit "$/oz" -> "Gold": the unit is shown once, separately.
+  return unit && inst.endsWith(unit) ? inst.slice(0, -unit.length).trim() : inst;
+}
+
+function tableTitle(rows) {
+  const names = [...new Set(rows.map((r) => instName(r.instrument, r.unit)))];
+  const units = [...new Set(rows.map((r) => r.unit).filter(Boolean))];
+  const list = names.length > 4 ? names.slice(0, 4).join(", ") + " and others"
+    : names.length > 1 ? names.slice(0, -1).join(", ") + " and " + names[names.length - 1] : names[0];
+  return `${list} forecast${units.length === 1 ? ` (${units[0]})` : ""}`;
+}
+
+function asOfLines(rows) {
+  // "Latest Forecast Update: 30 October 2026 · FX Weekly: Firm, Not One-Way, published 2 Nov 2026"
+  const seen = new Map();
+  for (const r of rows) {
+    const key = `${r.data_date || ""}|${r.doc_title || ""}|${r.publication_label}`;
+    if (!seen.has(key)) seen.set(key, [r.data_date, r.doc_title ? `${r.doc_title}, published ${r.publication_label}` : `Published ${r.publication_label}`].filter(Boolean).join(" · "));
+  }
+  return [...seen.values()];
+}
+
+function renderTable(answer) {
+  const tables = tableGroups(answer.table).map((g) => {
+    const head = el("tr", {}, el("th", { text: "" }), g.horizons.map((h) => el("th", { class: "num", text: h })), el("th", { text: "" }));
+    const body = el("tbody", {}, g.rows.map((r) => el("tr", {},
+      el("td", {}, instName(r.instrument, r.unit), r.unit && !tableTitle(answer.table).endsWith(`(${r.unit})`)
+        ? el("span", { class: "muted", text: ` (${r.unit})` }) : null),
+      g.horizons.map((h) => {
+        const c = r.cells.get(h);
+        return el("td", { class: "num", title: c && c.horizon_passed ? "This horizon has passed" : "" },
+          c ? c.value : "—", c && c.horizon_passed ? el("sup", { class: "passed", text: "passed" }) : null);
+      }),
+      el("td", { class: "src" }, citeChips(answer, [...r.cites])))));
+    return el("div", { class: "table-wrap" }, el("table", { class: "fc" },
+      g.kind === "relative" && answer.table.some((r) => r.horizon_kind === "absolute")
+        ? el("caption", { text: "Relative horizons (as published)" }) : null,
+      el("thead", {}, head), body));
+  });
+  const notes = answer.table_notes.filter((n) => n.mode === "verbatim");
   return el("div", {},
-    el("div", { class: "table-wrap" }, el("table", { class: "fc" }, el("thead", {}, head), body)),
+    el("div", { class: "table-title", text: tableTitle(answer.table) }),
+    tables,
     el("div", { class: "table-meta" },
-      dataDates.map((d) => el("div", { class: "note" }, el("b", { text: "Stated in source:" }), el("span", { text: d }))),
-      answer.table_notes.map((n) => el("div", { class: "note" }, el("span", { text: n.text }), citeChips(answer, n.citations)))));
+      asOfLines(answer.table).map((t) => el("div", { class: "asof", text: t })),
+      notes.map((n) => el("div", { class: "note" }, el("span", { text: n.text }), citeChips(answer, n.citations)))));
 }
 
 function renderAnswer(a) {
   if (a.answer_id) state.answers.set(a.answer_id, a);
   const [statusText, statusCls] = STATUS[a.status] || [a.status, ""];
   const head = el("div", { class: "answer-head" },
-    el("span", { class: `badge ${statusCls}`, text: statusText }),
-    a.mode && a.mode !== "none" ? el("span", { class: "badge", text: a.mode === "model_assisted" ? "Model-assisted" : "Extractive" }) : null,
-    (a.specialists || []).map((s) => el("span", { class: "badge red", text: `${s} specialist` })),
+    a.status !== "complete" ? el("span", { class: `badge ${statusCls}`, text: statusText }) : null,
     el("span", { class: "spacer" }),
     el("span", { class: "badge", text: `Generated ${a.generated_label}` }));
   const body = el("div", { class: "answer-body" });
@@ -335,45 +391,43 @@ function renderAnswer(a) {
     body.append(el("div", { class: `notice ${n.kind}` }, svg(n.kind === "web" ? "globe" : "shield"), el("div", { text: n.text })));
   }
   if (a.message) body.append(el("p", { class: "empty-answer", text: a.message }));
-  const fr = a.freshness || {};
-  if (a.sources && a.sources.length) {
-    body.append(el("div", { class: "dates-strip" },
-      el("span", {}, "Sources published ", el("b", { text: fr.research_published || "—" })),
-      el("span", {}, "Corpus window ", el("b", { text: fr.corpus_window || "—" })),
-      el("span", {}, "Corpus refreshed ", el("b", { text: fr.corpus_refreshed || "—" })),
-      el("span", {}, "Answer generated ", el("b", { text: a.generated_label })),
-      fr.expanded ? el("span", { class: "badge warn", text: "Expanded date range" }) : null));
-  }
+  const gaps = (a.limitations || []).filter((l) => LEAD_LIMITS.has(l.type)).map((l) => l.text);
   if (a.direct && a.direct.length) {
-    body.append(el("div", { class: "section direct" }, el("h3", { text: "Answer" }),
-      a.direct.map((c) => el("p", { class: "lead" }, c.mode === "verbatim" ? `“${c.text}”` : c.text, " ", citeChips(a, c.citations)))));
+    body.append(el("div", { class: "section direct" }, el("h3", { text: "Executive summary" }),
+      summaryParagraphs(a.direct).map((para, i) => el("p", { class: "lead" }, i === 0 ? gaps.map((g) => g + " ") : null,
+        para.flatMap((c) => [c.text, " ", ...citeChips(a, c.citations), " "])))));
   } else if (a.no_evidence_message) {
-    body.append(el("div", { class: "section direct" }, el("h3", { text: "Answer" }), el("p", { class: "lead", text: a.no_evidence_message })));
+    body.append(el("div", { class: "section direct" }, el("h3", { text: "Executive summary" }), el("p", { class: "lead", text: a.no_evidence_message })));
   }
-  if (a.table && a.table.length) {
-    body.append(el("div", { class: "section" }, el("h3", {}, "Published forecasts", el("span", { class: "count", text: `· ${a.table.length} values` })), renderTable(a)));
+  if (a.table && a.table.length) body.append(el("div", { class: "section" }, renderTable(a)));
+  const implication = (a.table_notes || []).filter((n) => n.mode !== "verbatim");
+  if (implication.length) {
+    body.append(el("div", { class: "section direct" }, implication.map((c) => el("p", {}, c.text, " ", citeChips(a, c.citations)))));
   }
-  if (a.rationale && a.rationale.length) body.append(el("div", { class: "section" }, el("h3", { text: "Published rationale" }), claimList(a, a.rationale)));
-  if (a.risks && a.risks.length) body.append(el("div", { class: "section" }, el("h3", { text: "Risks identified in the research" }), claimList(a, a.risks, "risk")));
-  if (a.scenarios && a.scenarios.length) body.append(el("div", { class: "section" }, el("h3", { text: "Scenarios" }), claimList(a, a.scenarios)));
   if (a.conflicts && a.conflicts.length) {
-    body.append(el("div", { class: "section" }, el("h3", { text: "Conflicts and revisions" }),
+    body.append(el("div", { class: "section" }, el("h3", { text: "Differing views in the research" }),
       el("ul", { class: "limits" }, a.conflicts.map((c) => el("li", {},
         el("span", { class: `badge ${c.resolution === "unresolved" ? "bad" : "info"}`, text: c.resolution === "unresolved" ? "Unresolved" : "Revision" }),
         el("span", { text: c.text }))))));
   }
-  if (a.limitations && a.limitations.length) {
-    body.append(el("div", { class: "section" }, el("h3", { text: "Coverage and limitations" }),
-      el("ul", { class: "limits" }, a.limitations.map((l) => {
-        const [lab, cls] = LIMIT_LABEL[l.type] || [l.type, ""];
-        return el("li", {}, el("span", { class: `badge ${cls}`, text: lab }), el("span", { text: (l.specialist ? `${l.specialist}: ` : "") + l.text }));
-      }))));
+  const material = (a.limitations || []).filter((l) => MATERIAL_LIMITS.has(l.type) && !(a.direct.length && LEAD_LIMITS.has(l.type)));
+  const minor = (a.limitations || []).filter((l) => !MATERIAL_LIMITS.has(l.type));
+  if (material.length) {
+    body.append(el("div", { class: "section please-note" }, el("h3", { text: "Please note" }),
+      el("ul", { class: "limits" }, material.map((l) => el("li", { text: l.text })))));
   }
   if (a.suggestions && a.suggestions.length) {
     body.append(el("div", { class: "suggestions" }, a.suggestions.map((s) => el("button", { class: "suggestion", type: "button", onclick: () => ask(s) }, svg("spark"), el("span", { text: s })))));
   }
+  const support = [...(a.rationale || []), ...(a.risks || []), ...(a.scenarios || [])];
+  if (support.length) {
+    body.append(el("details", { class: "more" }, el("summary", {}, "Supporting research", el("span", { class: "count", text: ` · ${support.length} excerpts` })),
+      a.rationale.length ? claimList(a, a.rationale) : null,
+      a.risks.length ? el("div", {}, el("h4", { text: "Risks" }), claimList(a, a.risks, "risk")) : null,
+      (a.scenarios || []).length ? el("div", {}, el("h4", { text: "Scenarios" }), claimList(a, a.scenarios)) : null));
+  }
   if (a.sources && a.sources.length) {
-    body.append(el("div", { class: "section" }, el("h3", {}, "Sources", el("span", { class: "count", text: `· ${a.sources.length} cited excerpts` })),
+    body.append(el("details", { class: "more" }, el("summary", {}, "Sources", el("span", { class: "count", text: ` · ${a.sources.length}` })),
       el("ol", { class: "sources" }, a.sources.map((s) => el("li", { tabindex: "0", role: "button", onclick: () => openSource(a, s.n),
         onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openSource(a, s.n); } } },
         el("span", { class: "n", text: String(s.n) }),
@@ -386,16 +440,28 @@ function renderAnswer(a) {
           el("div", { class: "x", text: s.excerpt })),
         freshBadge(s.freshness))))));
   }
-  if (a.plan) {
+  const fr = a.freshness || {};
+  if (a.plan || (a.sources && a.sources.length)) {
     body.append(el("details", { class: "audit" }, el("summary", { text: "How this answer was produced" }),
-      el("div", { text: `Lead specialist: ${a.plan.lead || "—"} · consulted: ${a.plan.specialists.join(", ")} · instruments: ${(a.plan.instruments || []).join(", ") || "—"} · horizon: ${a.plan.horizon || "—"} · requested: ${a.plan.info_types.join(", ")}${a.plan.inherited_context ? " · follow-up context inherited" : ""}` }),
-      a.validation ? el("div", { text: `Validation checks: ${a.validation.checks.join(", ")}. Removed: ${a.validation.removed}.` }) : null));
+      a.sources && a.sources.length ? el("div", { class: "dates-strip" },
+        el("span", {}, "Sources published ", el("b", { text: fr.research_published || "—" })),
+        el("span", {}, "Corpus window ", el("b", { text: fr.corpus_window || "—" })),
+        el("span", {}, "Corpus refreshed ", el("b", { text: fr.corpus_refreshed || "—" })),
+        el("span", {}, "Answer generated ", el("b", { text: a.generated_label })),
+        fr.expanded ? el("span", { class: "badge warn", text: "Expanded date range" }) : null) : null,
+      a.mode && a.mode !== "none" ? el("div", { text: `Mode: ${a.mode === "model_assisted" ? "model-assisted summary (validated)" : "extractive (summary quotes the research and uses fixed wording around forecast values)"} · specialists: ${(a.specialists || []).join(", ") || "—"}` }) : null,
+      a.plan ? el("div", { text: `Lead specialist: ${a.plan.lead || "—"} · consulted: ${a.plan.specialists.join(", ")} · instruments: ${(a.plan.instruments || []).join(", ") || "—"} · horizon: ${a.plan.horizon || "—"} · requested: ${a.plan.info_types.join(", ")}${a.plan.inherited_context ? " · follow-up context inherited" : ""}${(a.plan.search_terms || []).length ? ` · search terms added: ${a.plan.search_terms.join(", ")}` : ""}` }) : null,
+      a.validation ? el("div", { text: `Validation checks: ${a.validation.checks.join(", ")}. Removed: ${a.validation.removed}.` }) : null,
+      minor.length ? el("ul", { class: "limits" }, minor.map((l) => {
+        const [lab, cls] = LIMIT_LABEL[l.type] || [l.type, ""];
+        return el("li", {}, el("span", { class: `badge ${cls}`, text: lab }), el("span", { text: (l.specialist ? `${l.specialist}: ` : "") + l.text }));
+      })) : null));
   }
   const foot = el("div", { class: "answer-foot" });
   if (a.sources && a.sources.length) {
     foot.append(el("span", { class: "verify" }, svg("check"), `${a.sources.length} citations verified against source pages${a.validation && a.validation.removed ? ` · ${a.validation.removed} unsupported item(s) removed` : ""}`));
-    foot.append(el("button", { class: "btn btn-ghost", type: "button", onclick: () => copyText(answerMarkdown(a), "Answer copied with references") }, svg("copy"), "Copy answer"));
-    if (a.table && a.table.length) foot.append(el("button", { class: "btn btn-ghost", type: "button", onclick: () => copyText(tableMarkdown(a), "Table copied with references") }, svg("copy"), "Copy table"));
+    foot.append(el("button", { class: "btn btn-ghost", type: "button", onclick: () => copyText(answerMarkdown(a), "Answer copied") }, svg("copy"), "Copy answer"));
+    if (a.table && a.table.length) foot.append(el("button", { class: "btn btn-ghost", type: "button", onclick: () => copyText(tableMarkdown(a), "Table copied") }, svg("copy"), "Copy table"));
   }
   return el("article", { class: "answer" }, head, body, foot.childNodes.length ? foot : null);
 }
@@ -406,38 +472,49 @@ function refs(a, nums) {
 }
 function sourceLines(a, only) {
   return a.sources.filter((s) => !only || only.has(s.n)).map((s) =>
-    `[${s.n}] ${s.title} — published ${s.publication_label}, PDF p.${s.pdf_page} — ${s.url} (doc ${s.doc_id})`);
+    `[${s.n}] ${s.title}, published ${s.publication_label}, p.${s.pdf_page}`);
 }
 function tableMarkdownRows(a) {
-  const lines = ["| Instrument | Forecast horizon | Published forecast | Unit / quotation | Scenario | Publication date | Source |",
-    "|---|---|--:|---|---|---|---|"];
-  for (const r of a.table) {
-    lines.push(`| ${r.instrument} | ${r.horizon}${r.horizon_passed ? " (passed)" : ""} | ${r.value} | ${r.unit || r.quotation + " (as quoted)"} | ${r.scenario} | ${r.publication_label} | ${refs(a, r.citations)} |`);
+  const lines = [`**${tableTitle(a.table)}**`, ""];
+  for (const g of tableGroups(a.table)) {
+    lines.push(`| ${g.kind === "relative" ? "Horizon (as published)" : ""} | ${g.horizons.join(" | ")} |`,
+      `|---|${g.horizons.map(() => "--:").join("|")}|`);
+    for (const r of g.rows) {
+      lines.push(`| ${instName(r.instrument, r.unit)}${r.unit && !tableTitle(a.table).endsWith(`(${r.unit})`) ? ` (${r.unit})` : ""} | ${g.horizons.map((h) => {
+        const c = r.cells.get(h);
+        return c ? c.value + (c.horizon_passed ? " (passed)" : "") : "—";
+      }).join(" | ")} |`);
+    }
+    lines.push("");
   }
+  lines.push(...asOfLines(a.table));
   return lines;
 }
+function citedIn(items) {
+  return new Set(items.flatMap((c) => c.citations || []));
+}
 function tableMarkdown(a) {
-  const used = new Set(a.table.flatMap((r) => r.citations).concat(a.table_notes.flatMap((n) => n.citations)));
-  const dd = [...new Set(a.table.map((r) => r.data_date).filter(Boolean))];
-  return [...tableMarkdownRows(a), "", ...dd.map((d) => `Stated in source: ${d}`),
-    ...a.table_notes.map((n) => `${n.text} ${refs(a, n.citations)}`), "", "Sources:", ...sourceLines(a, used),
-    "", `Answer generated ${a.generated_label}; corpus window ${a.freshness.corpus_window}; refreshed ${a.freshness.corpus_refreshed}.`].join("\n");
+  const used = citedIn(a.table);
+  return [...tableMarkdownRows(a), "", "Sources:", ...sourceLines(a, used)].join("\n");
 }
 function answerMarkdown(a) {
-  const out = [`Q: ${a.question}`, ""];
-  const fr = a.freshness || {};
-  out.push(`Research published ${fr.research_published || "—"} · Corpus window ${fr.corpus_window || "—"} · Corpus refreshed ${fr.corpus_refreshed || "—"} · Answer generated ${a.generated_label}`, "");
+  // Client-ready text: summary, table, implication, material notes, sources.
+  const out = [];
   for (const n of a.notices || []) out.push(`Note: ${n.text}`, "");
-  if (a.direct.length) { out.push("Answer:"); a.direct.forEach((c) => out.push(`${c.text} ${refs(a, c.citations)}`)); out.push(""); }
-  if (a.table.length) { out.push("Published forecasts:", ...tableMarkdownRows(a)); a.table_notes.forEach((n) => out.push(`${n.text} ${refs(a, n.citations)}`)); out.push(""); }
-  const sect = (title, list) => { if (list.length) { out.push(`${title}:`); list.forEach((c) => out.push(`- "${c.text}" ${refs(a, c.citations)}`)); out.push(""); } };
-  sect("Published rationale", a.rationale);
-  sect("Risks identified", a.risks);
-  sect("Scenarios", a.scenarios || []);
-  if (a.conflicts.length) { out.push("Conflicts / revisions:"); a.conflicts.forEach((c) => out.push(`- ${c.text}`)); out.push(""); }
-  if (a.limitations.length) { out.push("Coverage and limitations:"); a.limitations.forEach((l) => out.push(`- ${l.text}`)); out.push(""); }
-  out.push("Sources:", ...sourceLines(a));
-  out.push("", "Source: ingested OCBC research PDFs. Consolidation of published research; not investment advice.");
+  const gaps = a.direct.length ? a.limitations.filter((l) => LEAD_LIMITS.has(l.type)).map((l) => l.text) : [];
+  summaryParagraphs(a.direct).forEach((para, i) =>
+    out.push([...(i === 0 ? gaps : []), ...para.map((c) => `${c.text} ${refs(a, c.citations)}`.trim())].join(" "), ""));
+  if (!a.direct.length && a.no_evidence_message) out.push(a.no_evidence_message, "");
+  const implication = a.table_notes.filter((n) => n.mode !== "verbatim");
+  if (a.table.length) out.push(...tableMarkdownRows(a), "");
+  if (implication.length) out.push(implication.map((c) => `${c.text} ${refs(a, c.citations)}`).join(" "), "");
+  if (a.conflicts.length) a.conflicts.forEach((c) => out.push(`Note: ${c.text}`));
+  const notes = a.limitations.filter((l) => MATERIAL_LIMITS.has(l.type) && !gaps.includes(l.text));
+  notes.forEach((l) => out.push(`Note: ${l.text}`));
+  if (a.conflicts.length || notes.length) out.push("");
+  const used = citedIn([...a.direct, ...a.table, ...implication]);
+  out.push("Sources:", ...sourceLines(a, used));
+  out.push("", "Source: OCBC Group Research. Consolidation of published research; not investment advice.");
   return out.join("\n");
 }
 async function copyText(text, msg) {

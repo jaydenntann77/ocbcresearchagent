@@ -111,3 +111,26 @@ def test_planner_esg_routes_to_macro():
 
 def test_planner_sgd_rates_not_fx():
     assert "fx" not in planner.plan_request("Summarize OCBC's published view on SGD interest rates.", None, WIN).specialists
+
+
+def test_planner_mas_is_an_fx_question():
+    # MAS manages the S$NEER policy band, so FX leads; other desks join only on their own subjects.
+    for q in ("What is the Singapore central bank likely to do next?", "Where is the S$NEER in its policy band?"):
+        p = planner.plan_request(q, None, WIN)
+        assert p.specialists == ["fx"] and p.lead == "fx" and "SGD" in p.currencies
+    assert planner.plan_request("What will MAS do given rising inflation?", None, WIN).specialists == ["fx", "macro"]
+    assert planner.plan_request("MAS policy and the SORA outlook", None, WIN).specialists == ["fx", "rates"]
+
+
+def test_planner_precious_metals_are_fx_led():
+    p = planner.plan_request("what is the house view on precious metals, include the forecasts", None, WIN)
+    assert p.specialists == ["fx"] and set(p.instruments) == {"GOLD", "SILVER", "PLATINUM", "PALLADIUM"}
+    assert planner.plan_request("How do gold and US inflation interact?", None, WIN).specialists == ["fx", "macro"]
+
+
+def test_planner_overview_is_not_a_follow_up():
+    first = planner.plan_request("usdthb forecast?", None, WIN)
+    p = planner.plan_request("give me an overview of OCBC research views", first.to_state(), WIN)
+    assert not p.inherited and p.instruments == [] and p.specialists == ["macro", "fx", "rates"]
+    assert planner.plan_request("Big picture: what is OCBC saying on credit?", None, WIN).specialists == ["credit"]
+    assert planner.plan_request("and what are the risks?", first.to_state(), WIN).inherited

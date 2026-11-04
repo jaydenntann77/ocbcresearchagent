@@ -58,6 +58,9 @@ That is still a complete, validated answer, but nobody writes a synthesis. Set `
 restart to switch on **model-assisted synthesis**, which works like this:
 
 * it uses `claude-opus-5-5` with structured JSON output and server-side refusal fallback, and has no tools
+* before searching, `claude-haiku-5-5` lists the research's own terms for the question ("the Fed" → FOMC, Fed funds,
+  policy rate; "Singdollar" → SGD, S$NEER). The specialists add them to their search, and a question that names no
+  instrument is planned again with them. The model sees only the question. Set `RA_QUERY_REWRITE=0` to turn it off
 * the model sees only specialist evidence, wrapped as untrusted data
 * every model sentence must cite evidence IDs and goes through the validator; failing sentences are dropped
 
@@ -164,6 +167,26 @@ section, to any specialist whose lexicon score qualifies, with the original docu
 
 **Refresh.** There is an admin "Refresh" button, an explicit "Run with this window" control (with a
 confirmation), and a cron schedule (SGT) configurable in the admin view or with `RA_INGEST_SCHEDULE_CRON`.
+
+## Answer format
+
+Answers are laid out for a client audience (or for Sales talking to clients):
+
+1. **Executive summary** (up to 8 sentences): any gap in what was asked comes first, then the house view and key
+   forecast path, the main drivers and one risk. With a model key, Claude writes it in house voice ("We expect…",
+   "Our house forecast is…"); without one, it uses fixed wording around the forecast values plus the research's
+   own first-person view sentences, quoted verbatim.
+2. **One forecast table** with a bold title, horizons across the top and one instrument per row. The calendar path
+   is shown, or the 3M/6M/12M version when the question asks for it, never both. The forecast-update date and
+   source sit beneath the table.
+3. **Key implication** of the table (model mode), without repeating its values.
+4. **Please note** only for material gaps or conflicts. Supporting research, sources and "How this answer was
+   produced" (dates, specialists, validation) are collapsed underneath.
+
+**Copy answer** gives client-ready text in the same order, with sources listed at the end. Model-written summary
+and implication sentences need 35% word overlap with their cited excerpts, not 60%, so the model can translate
+research language for clients. Their numbers, pair direction and recommendation wording are checked as strictly as
+everything else.
 
 ## Answer rules implemented
 

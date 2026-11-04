@@ -85,12 +85,26 @@ def find_currencies(text: str) -> list[str]:
     return found
 
 
-def pair_aliases(key: str) -> list[str]:
-    """Search aliases for exact matching of a pair key in document text."""
+RATE_ALIASES = {"FEDFUNDS": ["fed funds", "federal funds", "FFR", "Fed", "FOMC"]}
+_TENOR_KEY = re.compile(r"(UST|SGS|SOFRSWAP)(\d{1,2})Y")
+
+
+def instrument_aliases(key: str) -> list[str]:
+    """Words that mark a sentence as being about an instrument key. Keys such as
+    FEDFUNDS or UST10Y never appear in research text, so they need the wording
+    the research actually uses."""
     if len(key) == 6 and key[:3] in CURRENCIES and key[3:] in CURRENCIES:
         a, b = key[:3], key[3:]
         return [f"{a}{b}", f"{a}-{b}", f"{a}/{b}", f"{a} {b}"]
-    return [key]
+    if key in RATE_ALIASES:
+        return [key] + RATE_ALIASES[key]
+    m = _TENOR_KEY.fullmatch(key)
+    if m:
+        kind, n = m.groups()
+        names = {"UST": ["UST", "Treasury", "Treasuries"], "SGS": ["SGS"], "SOFRSWAP": ["SOFR", "swap"]}[kind]
+        return [key, f"{n}Y", f"{n}-year", f"{n} year"] + names
+    words = [w for w, k in COMMODITY_KEYS.items() if k == key]
+    return [key] + words
 
 
 def search_tokens_for(text: str) -> str:

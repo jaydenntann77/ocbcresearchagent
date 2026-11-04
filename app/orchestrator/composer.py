@@ -17,6 +17,15 @@ from app.orchestrator import llm
 REL_ORDER = {"1M": 1, "3M": 3, "6M": 6, "9M": 9, "12M": 12, "18M": 18, "24M": 24}
 NO_FORECAST = "The ingested OCBC research does not contain a verified forecast for this horizon."
 
+# Client-facing presentation: lead with an executive summary (house view, key
+# forecast, main drivers, what could change the view), show ONE forecast table,
+# and keep the remaining evidence out of the narrative.
+SUMMARY_MAX = 8
+HEADLINE_RE = re.compile(r"^[A-Z][^:.!?]{2,80}?\s+:\s+")       # "USD Still Has Support : The USD..."
+HOUSE_VIEW_RE = re.compile(r"\b(we|our)\b", re.I)
+RELATIVE_ASK_RE = re.compile(r"\b(\d{1,2}\s*-?\s*m(onths?)?\b|relative horizon|months? ahead)", re.I)
+SOURCE_LINE_RE = re.compile(r"^\s*source\s*:", re.I)
+
 
 def _d(s: str | None) -> str:
     return fmt_date(date.fromisoformat(s)) if s else "date unknown"
@@ -28,6 +37,58 @@ def _row_sort(fv):
     return (1, "", REL_ORDER.get(fv.horizon_label.upper(), 99))
 
 
+def _one_representation(question: str, forecasts: list) -> list:
+    """Show one version of each instrument's forecast: the calendar path, or the
+    3M/6M/12M one when the question asks for relative horizons."""
+    keep = "relative" if RELATIVE_ASK_RE.search(question) else "absolute"
+    has = {f.instrument_key for f in forecasts if f.horizon_kind == keep}
+    return [f for f in forecasts if f.horizon_kind == keep or f.instrument_key not in has]
+
+
+def _path_sentence(fvs: list) -> str:
+    """Template sentence naming the start and end of a published path (not every value)."""
+    first, last = fvs[0], fvs[-1]
+    name = first.instrument_label
+    if first.unit and name.endswith(first.unit):  # "Gold $/oz" -> "gold"
+        name = name[:-len(first.unit)].strip().lower()
+    if len(fvs) == 1:
+        return f"Our house forecast for {name} is {first.value} for {first.horizon_label}."
+    # No comma straight after a horizon label: the validator would read "Dec-26," as a number.
+    try:
+        move = float(last.value.rstrip("%")) - float(first.value.rstrip("%"))
+        verb = "easing" if move < 0 else "rising" if move > 0 else ""
+    except ValueError:
+        verb = "moving"
+    if not verb:
+        return (f"Our house forecast has {name} unchanged at {first.value} "
+                f"from {first.horizon_label} to {last.horizon_label}.")
+    return (f"Our house forecast has {name} {verb} from {first.value} in {first.horizon_label} "
+            f"to {last.value} by {last.horizon_label}.")
+
+
+PART_ORDER = {"view": 0, "path": 1, "why": 2, "risks": 3, "conclusion": 4}
+
+
+def _summary(claims: list[Claim], path_claims: list[Claim]) -> list[Claim]:
+    """Executive summary from validated material, in the house order: what we
+    think, where the market goes, why, what could change the view."""
+    rationale = [c for c in claims if c.section == "rationale"]
+    risks = [c for c in claims if c.section in ("risks", "scenarios")]
+    rationale.sort(key=lambda c: not HOUSE_VIEW_RE.search(c.text))
+    view = rationale[:1] if rationale and HOUSE_VIEW_RE.search(rationale[0].text) else []
+    rest = rationale[len(view):]
+    if path_claims:
+        why, risk = rest[:1], risks[:1]
+    else:  # a view or risk question: the findings are the answer
+        why = rest[:3 - len(view)]
+        risk = risks[:max(1, 4 - len(view) - len(why))]
+    tagged = ([c.model_copy(update={"part": "view"}) for c in view]
+              + [c.model_copy(update={"part": "path"}) for c in path_claims[:4]]
+              + [c.model_copy(update={"part": "why"}) for c in why]
+              + [c.model_copy(update={"part": "risks"}) for c in risk])
+    return tagged[:SUMMARY_MAX]
+
+
 def build_draft(question: str, responses: list[SpecialistResponse]):
     evidence = {}
     forecasts = []
@@ -35,6 +96,11 @@ def build_draft(question: str, responses: list[SpecialistResponse]):
         for e in r.evidence:
             evidence.setdefault(e.evidence_id, e)
         forecasts += r.forecasts
+    shown = _one_representation(question, forecasts)
+    hidden_ev = {f.evidence_id for f in forecasts} - {f.evidence_id for f in shown}
+    hidden_tables = {evidence[e].table_id for e in hidden_ev if e in evidence and evidence[e].table_id} \
+        - {evidence[f.evidence_id].table_id for f in shown if f.evidence_id in evidence}
+    forecasts = shown
     rows: list[TableRow] = []
     for fv in sorted(forecasts, key=lambda f: (f.instrument_key,) + _row_sort(f)):
         ev = evidence.get(fv.evidence_id)
@@ -53,45 +119,44 @@ def build_draft(question: str, responses: list[SpecialistResponse]):
         claims.append(Claim(claim_id=f"C{len(claims) + 1}", section=section, text=text, evidence_ids=ev_ids,
                             mode=mode, specialist=spec))
 
-    # Direct answer: one template sentence per instrument/source table, built
-    # only from extracted values.
+    # Forecast path: one template sentence per instrument/source table naming
+    # where the path starts and ends; the table carries every value.
     by_table: dict[tuple, list] = {}
     for fv in forecasts:
-        by_table.setdefault((fv.instrument_key, fv.evidence_id), []).append(fv)
-    for (key, ev_id), fvs in by_table.items():
-        ev = evidence.get(ev_id)
+        by_table.setdefault((fv.instrument_key, fv.evidence_id, fv.horizon_kind), []).append(fv)
+    paths = []
+    for (key, ev_id, kind), fvs in by_table.items():
         fvs.sort(key=_row_sort)
-        absolute = [f for f in fvs if f.horizon_kind == "absolute"]
-        relative = [f for f in fvs if f.horizon_kind == "relative"]
-        src = f"{ev.title}, {_d(ev.publication_date)}" if ev else "source"
-        if absolute:
-            path = "; ".join(f"{f.horizon_label}: {f.value}" for f in absolute)
-            add("direct", f"Published {absolute[0].instrument_label} forecasts ({src}): {path}.", [ev_id], "template")
-        if relative:
-            path = "; ".join(f"{f.horizon_label}: {f.value}" for f in relative)
-            add("direct", f"Published {relative[0].instrument_label} relative-horizon forecasts ({src}): {path}.",
-                [ev_id], "template")
-    lead_used = False
+        paths.append(Claim(claim_id=f"P{len(paths) + 1}", section="direct", text=_path_sentence(fvs),
+                           evidence_ids=[ev_id], mode="template"))
     for r in responses:
         for f in r.findings:
             section = {"rationale": "rationale", "risk": "risks", "scenario": "scenarios",
                        "data_point": "commentary", "commentary": "rationale",
                        "forecast_summary": "direct"}[f.kind]
-            if not forecasts and not lead_used and section == "rationale":
-                add("direct", f.statement, f.evidence_ids, "verbatim", r.specialist)
-                lead_used = True
-                continue
-            add(section, f.statement, f.evidence_ids, "verbatim", r.specialist)
+            if section == "commentary" and (SOURCE_LINE_RE.match(f.statement) or all(
+                    evidence[e].table_id in hidden_tables for e in f.evidence_ids if e in evidence)):
+                continue  # attribution lines are shown under the table; notes on a hidden table are moot
+            # Drop report-headline prefixes; the remainder is still verbatim.
+            text = HEADLINE_RE.sub("", f.statement) if section != "commentary" else f.statement
+            add(section, text, f.evidence_ids, "verbatim", r.specialist)
+    # Executive summary: the chosen claims move into the "direct" section, in order.
+    summary = _summary(claims, paths)
+    picked = {c.claim_id for c in summary}
+    origin = {f"S{i + 1}": c.section for i, c in enumerate(summary)}
+    claims[:] = [c.model_copy(update={"section": "direct", "claim_id": f"S{i + 1}"}) for i, c in enumerate(summary)] \
+        + [c for c in claims if c.claim_id not in picked]
     draft = DraftAnswer(question=question, claims=claims, table_rows=rows)
     all_fc = [f for r in responses for f in r.forecasts]
     bundle = EvidenceBundle(evidence=list(evidence.values()), forecasts=all_fc)
-    return draft, bundle
+    return draft, bundle, origin
 
 
 def compose(question: str, plan, responses: list[SpecialistResponse], validator, notices: list[dict],
             corpus: dict, use_model: bool = True) -> dict:
-    draft, bundle = build_draft(question, responses)
+    draft, bundle, origin = build_draft(question, responses)
     model_note = None
+    model_removed = []
     mode = "extractive"
     if use_model and llm.status()["available"] and (draft.claims or draft.table_rows):
         try:
@@ -99,21 +164,27 @@ def compose(question: str, plan, responses: list[SpecialistResponse], validator,
                 question, [f.model_dump() for r in responses for f in r.findings],
                 [e.model_dump() for e in bundle.evidence], [r.model_dump() for r in draft.table_rows])
             model_claims = [Claim(claim_id=f"M{i + 1}", section=s["section"], text=s["text"],
-                                  evidence_ids=s["evidence_ids"], mode="summary") for i, s in enumerate(sentences)]
+                                  evidence_ids=s["evidence_ids"], mode="summary", part=s.get("part"))
+                            for i, s in enumerate(sentences)]
             report = validator.validate(DraftAnswer(question=question, claims=model_claims), bundle)
             ok = [c for c, v in zip(model_claims, report.claims) if v.ok]
             dropped = len(model_claims) - len(ok)
-            if ok:
+            model_removed = [{"text": c.text, "reasons": v.reasons} for c, v in zip(model_claims, report.claims)
+                             if not v.ok]
+            if any(c.section == "direct" for c in ok):
                 mode = "model_assisted"
-                keep_direct = any(c.section == "direct" for c in ok)
-                keep_points = any(c.section != "direct" for c in ok)
-                draft.claims = ([c for c in draft.claims if c.section == "direct" and c.mode == "template"]
-                                + [c for c in ok if c.section == "direct"]
-                                + ([c for c in draft.claims if c.section == "direct" and c.mode != "template"]
-                                   if not keep_direct else [])
-                                + [c for c in ok if c.section != "direct"]
-                                + [c for c in draft.claims if c.section not in ("direct",)
-                                   and (not keep_points or c.section == "commentary")])
+                # The model's executive summary replaces the extractive one; the
+                # quotes that summary was built from go back to supporting research.
+                rest = [c.model_copy(update={"section": origin[c.claim_id]}) if c.claim_id in origin else c
+                        for c in draft.claims]
+                summary = sorted((c for c in ok if c.section == "direct"), key=lambda c: PART_ORDER.get(c.part, 0))
+                # The key forecast must be in the summary: if every model sentence
+                # stating it failed validation, lead with the fixed-wording path.
+                values = {r.value for r in draft.table_rows}
+                if values and not any(v in c.text for c in summary for v in values):
+                    summary = [c for c in draft.claims if c.section == "direct" and c.mode == "template"] + summary
+                draft.claims = summary + [c for c in ok if c.section != "direct"] \
+                    + [c for c in rest if c.section != "direct"]
             if dropped:
                 model_note = f"{dropped} model-written sentence(s) failed evidence validation and were removed."
         except llm.ModelUnavailable as exc:
@@ -139,7 +210,7 @@ def compose(question: str, plan, responses: list[SpecialistResponse], validator,
 
     def claim_out(c: Claim):
         return {"text": c.text, "mode": c.mode, "citations": cite(c.evidence_ids),
-                "specialist": SPECIALIST_LABELS.get(c.specialist or "", None)}
+                "specialist": SPECIALIST_LABELS.get(c.specialist or "", None), "part": c.part}
 
     sections = {s: [] for s in ("direct", "rationale", "risks", "scenarios", "commentary")}
     for c in claims:
@@ -224,7 +295,8 @@ def compose(question: str, plan, responses: list[SpecialistResponse], validator,
         "conflicts": conflicts, "limitations": limitations, "sources": sources,
         "specialists": [SPECIALIST_LABELS[r.specialist] for r in responses],
         "validation": {"passed_after_removal": True, "removed": removed, "checks": report.checks_run,
-                       "removed_reasons": list(bad_claims.values())[:5] + list(bad_rows.values())[:5]},
+                       "removed_reasons": list(bad_claims.values())[:5] + list(bad_rows.values())[:5],
+                       "model_removed": model_removed},
         "no_evidence_message": None if has_content else NO_FORECAST if "forecast" in plan.info_types
         else "The ingested OCBC research does not contain relevant information for this request.",
     }
