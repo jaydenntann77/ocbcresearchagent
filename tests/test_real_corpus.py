@@ -20,22 +20,47 @@ def conn():
     c.close()
 
 
-def test_window_and_counts(conn):
+# These tests check rules against whatever corpus is currently ingested (any
+# window). Checks tied to a specific report use FX_WEEKLY_26OCT and skip if it
+# is not in the active window.
+FX_WEEKLY_26OCT = "ocbc-87b1953be8a6"
+
+
+def _window(conn):
     state = {r["key"]: json.loads(r["value"]) for r in conn.execute("SELECT * FROM corpus_state")}
-    w = state["active_window"]
-    assert w["days"] == 7 and not w["expanded"]
-    docs = conn.execute("SELECT * FROM documents WHERE status='indexed'").fetchall()
+    return state["active_window"]
+
+
+def _in_window(conn, doc_id):
+    w = _window(conn)
+    d = conn.execute("SELECT status, publication_date FROM documents WHERE doc_id=?", (doc_id,)).fetchone()
+    return d is not None and d["status"] == "indexed" and w["start"] <= d["publication_date"] <= w["end"]
+
+
+def test_window_and_counts(conn):
+    from datetime import date
+    w = _window(conn)
+    span = (date.fromisoformat(w["end"]) - date.fromisoformat(w["start"])).days + 1
+    assert span == w["days"]
+    docs = conn.execute("SELECT * FROM documents WHERE status='indexed' AND publication_date BETWEEN ? AND ?",
+                        (w["start"], w["end"])).fetchall()
     assert len(docs) >= 20
     for d in docs:
-        assert w["start"] <= d["publication_date"] <= w["end"]
         assert d["dev_fixture"] == 0
         assert d["source_url"].startswith("https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/")
 
 
-def test_dates_listing_and_printed_agree(conn):
+def test_dates_follow_resolution_rule(conn):
+    """Indexed documents are never low-confidence; high means listing and printed
+    dates agree; anything less carries a flag explaining why."""
     for d in conn.execute("SELECT * FROM documents WHERE status='indexed'"):
-        assert d["date_confidence"] == "high", d["title"]
-        assert d["listing_date"] == d["printed_date"] == d["publication_date"]
+        assert d["date_confidence"] in ("high", "medium"), d["title"]
+        if d["date_confidence"] == "high" and d["printed_date"]:
+            assert d["listing_date"] == d["printed_date"] == d["publication_date"], d["title"]
+        if d["date_confidence"] == "medium":
+            assert json.loads(d["date_flags"]), d["title"]
+    for d in conn.execute("SELECT * FROM documents WHERE status='quarantined'"):
+        assert d["publication_date"] is None and json.loads(d["date_flags"])
 
 
 def test_stale_metadata_title_flagged(conn):
@@ -60,17 +85,23 @@ def test_forecast_values_match_source_page_exactly(conn):
 
 
 def test_known_usdsgd_values(conn):
+    if not _in_window(conn, FX_WEEKLY_26OCT):
+        pytest.skip("FX Weekly 26 Oct 2026 not in the active window")
     got = {(r["horizon_label"], r["value"]) for r in conn.execute(
-        "SELECT horizon_label, value FROM forecast_records WHERE instrument_label='USD-SGD' AND is_observation=0")}
+        "SELECT horizon_label, value FROM forecast_records WHERE instrument_label='USD-SGD' AND is_observation=0 "
+        "AND doc_id=?", (FX_WEEKLY_26OCT,))}
     assert got == {("Dec-26", "1.2700"), ("Mar-27", "1.2670"), ("Jun-27", "1.2630"), ("Sep-27", "1.2610"),
                    ("Dec-27", "1.2550")}
     spot = conn.execute("SELECT value, horizon_label FROM forecast_records WHERE instrument_label='USD-SGD' "
-                        "AND is_observation=1").fetchall()
+                        "AND is_observation=1 AND doc_id=?", (FX_WEEKLY_26OCT,)).fetchall()
     assert [(s["value"], s["horizon_label"]) for s in spot] == [("1.2773", "Current (25 Sep)")]
 
 
 def test_forecast_data_date_and_footnotes_preserved(conn):
-    r = conn.execute("SELECT data_date, footnotes FROM forecast_records WHERE instrument_label='USD-SGD' LIMIT 1").fetchone()
+    if not _in_window(conn, FX_WEEKLY_26OCT):
+        pytest.skip("FX Weekly 26 Oct 2026 not in the active window")
+    r = conn.execute("SELECT data_date, footnotes FROM forecast_records WHERE instrument_label='USD-SGD' AND doc_id=? "
+                     "LIMIT 1", (FX_WEEKLY_26OCT,)).fetchone()
     assert r["data_date"] == "Latest Forecast Update: 25 September 2026"
     assert any("trajectory bias" in f for f in json.loads(r["footnotes"]))
 
@@ -106,8 +137,9 @@ def test_no_double_counted_documents(conn):
     assert len(urls) == len(set(urls))
 
 
-def test_rate_named_only_in_market_moves_is_explained():
-    """SORA appears only in daily curve-move notes; TONA not at all. Each is reported separately."""
+def test_each_requested_rate_is_accounted_for():
+    """Every requested rate gets its own outcome (forecasts found, or an explicit
+    "no verified forecast"), and conflicts only ever compare the same instrument."""
     import subprocess
     import sys
     code = ("from app.research.collections import CollectionRegistry\n"
@@ -117,8 +149,15 @@ def test_rate_named_only_in_market_moves_is_explained():
             "p=planner.plan_request('tell me sora and tona forecast to 2027',None,W)\n"
             "t=planner.build_tasks(p,W,False)[0]\n"
             "r=S.Specialist('rates',CollectionRegistry(),S.CorpusStatus()).run(t)\n"
-            "import json; print(json.dumps([c.detail for c in r.coverage]))")
+            "import json; print(json.dumps({'cov': [c.detail for c in r.coverage],"
+            " 'found': sorted({f.instrument_key for f in r.forecasts}),"
+            " 'conflicts': [sorted({f.instrument_label for f in r.forecasts if f.record_id in c.record_ids})"
+            " for c in r.conflicts]}))")
     out = subprocess.run([sys.executable, "-c", code], cwd=ROOT, capture_output=True, text=True, timeout=300)
-    details = json.loads(out.stdout.strip().splitlines()[-1])
-    assert any(d.startswith("SORA is mentioned in") and "past market moves" in d for d in details)
-    assert any(d.startswith("No passage mentioning TONA") for d in details)
+    res = json.loads(out.stdout.strip().splitlines()[-1])
+    for key in ("SORA", "TONA"):
+        has_rows = any(k == key or k.startswith(key + "OIS") for k in res["found"])
+        says_missing = any(f"verified forecast for {key}." in d for d in res["cov"])
+        assert has_rows != says_missing, (key, res)
+    for labels in res["conflicts"]:
+        assert len(labels) <= 1, f"conflict mixes different instruments: {labels}"

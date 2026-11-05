@@ -76,6 +76,13 @@ def instrument_key(label: str) -> str:
     for word, key in COMMODITY_KEYS.items():
         if re.search(rf"\b{word}\b", low):
             return key
+    # Swap/OIS tenors of a benchmark rate are separate instruments from the
+    # overnight rate itself ("3M TONAR OIS" vs "JPY TONAR").
+    m = re.match(r"^\s*(\d{1,2}[MY])\s+(.+?)\s+OIS\b", raw, re.I)
+    if m:
+        base = instrument_key(m.group(2))
+        if base in BENCHMARK_RATES or base == "SOFR":
+            return f"{base}OIS{m.group(1).upper()}"
     for rx, key in RATE_PATTERNS:
         m = rx.search(raw)
         if m:
@@ -111,8 +118,18 @@ RATE_ALIASES = {"FEDFUNDS": ["fed funds", "federal funds", "FFR", "Fed", "FOMC"]
 _TENOR_KEY = re.compile(r"(UST|SGS|SOFRSWAP)(\d{1,2})Y")
 
 
+def related_rate_keys(key: str, available: set[str]) -> list[str]:
+    """For a benchmark rate, its OIS tenors present in the corpus (SOFR -> SOFROIS1Y, ...)."""
+    if key in BENCHMARK_RATES or key == "SOFR":
+        return sorted(k for k in available if k.startswith(f"{key}OIS"))
+    return []
+
+
 def display_name(key: str) -> str:
     """Readable name for an instrument key (ESTR -> €STR, USDSGD -> USD/SGD)."""
+    m = re.fullmatch(r"([A-Z]+)OIS(\d{1,2}[MY])", key)
+    if m and (m.group(1) in BENCHMARK_RATES or m.group(1) == "SOFR"):
+        return f"{m.group(2)} {display_name(m.group(1))} OIS"
     if key in BENCHMARK_RATES:
         return BENCHMARK_RATES[key][1]
     if len(key) == 6 and key[:3] in CURRENCIES and key[3:] in CURRENCIES:

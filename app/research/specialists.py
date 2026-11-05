@@ -15,7 +15,7 @@ import sqlite3
 from datetime import date
 
 from app.common import config, embedding
-from app.common.instruments import CURRENCY_NAMES, display_name, instrument_aliases
+from app.common.instruments import CURRENCY_NAMES, display_name, instrument_aliases, related_rate_keys
 from app.common.schemas import (SPECIALIST_LABELS, Conflict, Coverage, Evidence, Finding, ForecastValue, SpecialistResponse,
                                 SpecialistTask)
 from app.common.security import evidence_signature
@@ -171,26 +171,29 @@ class Specialist:
 
     # ------------------------------------------------------------------ forecasts
     def _forecasts(self, task, handles, resp: SpecialistResponse):
-        keys = [k for k in task.instruments]
-        if not keys:
+        requested = [k for k in task.instruments]
+        if not requested:
             return
+        available = set().union(*(h.available_instrument_keys() for h in handles)) if handles else set()
+        keys = list(dict.fromkeys(requested + [rk for k in requested for rk in related_rate_keys(k, available)]))
         records = []
         for h in handles:
             for r in h.forecast_records(keys):
                 r["_handle"] = h
                 records.append(r)
-        available = set().union(*(h.available_instrument_keys() for h in handles)) if handles else set()
         for key in keys:
             if len(key) == 6 and key not in available and (key[3:] + key[:3]) in available:
                 resp.missing_coverage.append(
                     f"{key[:3]}/{key[3:]} is not published in the ingested forecast tables; OCBC publishes "
                     f"{key[3:]}-{key[:3]}. The pair was not inverted (inversion is not permitted).")
         forecasts = [r for r in records if not r["is_observation"]]
+        found_keys = {r["instrument_key"] for r in forecasts}
+        for key in requested:
+            related = [key] + related_rate_keys(key, available)
+            if not found_keys.intersection(related) and not any(key in m for m in resp.missing_coverage):
+                resp.coverage.append(Coverage(status="no_relevant_information",
+                                              detail=f"The ingested OCBC research does not contain a verified forecast for {display_name(key)}."))
         if not forecasts:
-            for key in keys:
-                if not any(key in m for m in resp.missing_coverage):
-                    resp.coverage.append(Coverage(status="no_relevant_information",
-                                                  detail=f"The ingested OCBC research does not contain a verified forecast for {display_name(key)}."))
             return
         horizon_text = (task.horizon or "").lower()
         years = sorted(task.horizon_years)
@@ -299,7 +302,9 @@ class Specialist:
             if later and not through:
                 resp.limitations.append(f"Forecasts for other years ({', '.join(map(str, later))}) exist but were not requested.")
         if resp.forecasts:
-            resp.coverage.append(Coverage(status="found", detail=f"{len(resp.forecasts)} forecast values for {', '.join(keys)}"))
+            shown = list(dict.fromkeys(display_name(f.instrument_key) for f in resp.forecasts))
+            resp.coverage.append(Coverage(status="found",
+                                          detail=f"{len(resp.forecasts)} forecast values for {', '.join(shown)}"))
 
     # ------------------------------------------------------------------ narrative
     def _narrative(self, task: SpecialistTask, handles, resp: SpecialistResponse):

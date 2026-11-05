@@ -11,9 +11,10 @@ when the question needs them), and then validates the returned evidence. The ans
 * dated rationale excerpts. Each citation opens the source PDF page with the excerpt highlighted.
 * a clear statement of what is missing, conflicting or stale
 
-The current corpus was ingested on **5 Nov 2026 (SGT)** and covers **7 October – 5 November 2026**, a 30-day
-window set with `RA_INGEST_WINDOW_DAYS=30` in `.env`. It holds 91 documents (see
-[reports/ingestion_report.md](reports/ingestion_report.md)). Documents that drop out of the window are kept on
+The current corpus was ingested on **5 Nov 2026 (SGT)** and covers **1 October – 5 November 2026**: a one-off
+36-day window, run with `--days 36` to include the October Research Monitor. Answers show it as an *expanded*
+window. The usual window is 30 days (`RA_INGEST_WINDOW_DAYS=30` in `.env`), and the next normal refresh
+returns to it. The corpus holds 113 documents (see [reports/ingestion_report.md](reports/ingestion_report.md)). Documents that drop out of the window are kept on
 disk; widening the window again brings them back into answers without re-downloading.
 
 > **Want to make changes?** Read [CONTRIBUTING.md](CONTRIBUTING.md) first. It covers how to run your own
@@ -38,7 +39,10 @@ The step above downloads the local embedding model. This is the only time the mo
 python -m app.ingestion.run
 ```
 
-The step above runs the 7-day OCBC ingestion. It is safe to re-run.
+The step above runs the OCBC ingestion for the configured window (`RA_INGEST_WINDOW_DAYS`, default 7 days). It is
+safe to re-run. `--days N` runs a one-off window that answers display as *expanded*. `--reindex` rebuilds the
+search indexes from the PDFs already downloaded without contacting OCBC; use it after changing the
+instrument rules.
 
 ```bash
 python run.py

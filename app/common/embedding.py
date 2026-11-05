@@ -47,7 +47,9 @@ def embed(texts: list[str], query: bool = False) -> np.ndarray | None:
     if query:
         vecs = list(_model.query_embed(texts))
     else:
-        vecs = list(_model.passage_embed(texts))
+        # Small batches keep peak memory low: long passages in large batches
+        # can exhaust RAM in the attention layers ("bad allocation").
+        vecs = list(_model.passage_embed(texts, batch_size=16))
     arr = np.asarray(vecs, dtype=np.float32)
     norms = np.linalg.norm(arr, axis=1, keepdims=True)
     return arr / np.clip(norms, 1e-9, None)

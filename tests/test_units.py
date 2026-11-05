@@ -136,6 +136,15 @@ def test_planner_overview_is_not_a_follow_up():
     assert planner.plan_request("and what are the risks?", first.to_state(), WIN).inherited
 
 
+def test_swap_tenors_are_separate_instruments():
+    from app.common.instruments import display_name, instrument_key, related_rate_keys
+    assert instrument_key("JPY TONAR") == "TONA"
+    assert instrument_key("3M TONAR OIS") == "TONAOIS3M"
+    assert instrument_key("10Y SOFR OIS") == "SOFROIS10Y" and instrument_key("SOFR") == "SOFR"
+    assert display_name("TONAOIS3M") == "3M TONA OIS"
+    assert related_rate_keys("SOFR", {"SOFR", "SOFROIS2Y", "TONAOIS3M"}) == ["SOFROIS2Y"]
+
+
 def test_benchmark_rates_recognised():
     p = planner.plan_request("tell me sora and tona forecast to 2027", None, WIN)
     assert p.specialists == ["rates"] and p.instruments == ["SORA", "TONA"]

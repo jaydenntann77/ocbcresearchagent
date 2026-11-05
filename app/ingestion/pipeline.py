@@ -250,6 +250,9 @@ def run_ingestion(days: int | None = None, trigger: str = "manual", log=print, f
             ingest_pdf_bytes(conn, r.content, it, (start, end), run,
                              {"last_modified": r.last_modified, "final_url": r.url},
                              dev_fixture=config.DEV_FIXTURE_CORPUS)
+        rekeyed = rekey_forecasts(conn)
+        if rekeyed:
+            log(f"Re-keyed {rekeyed} forecast cells with the current instrument rules")
         log("Building specialist collections ...")
         stats = indexer.build_collections(conn, start.isoformat(), end.isoformat(),
                                           include_fixtures=config.DEV_FIXTURE_CORPUS, log=log)
@@ -270,6 +273,39 @@ def run_ingestion(days: int | None = None, trigger: str = "manual", log=print, f
     finally:
         if own_fetcher:
             fetcher.close()
+        conn.close()
+
+
+def rekey_forecasts(conn) -> int:
+    """Recompute instrument keys and routing for stored forecast cells, so
+    changes to the instrument rules apply to documents ingested earlier."""
+    from app.common.instruments import instrument_key
+    changed = 0
+    with conn:
+        for r in conn.execute("SELECT record_id, instrument_label, instrument_key, specialists FROM forecast_records").fetchall():
+            key = instrument_key(r["instrument_label"])
+            specs = json.dumps(chunking.forecast_key_specialists(key))
+            if key != r["instrument_key"] or specs != r["specialists"]:
+                conn.execute("UPDATE forecast_records SET instrument_key=?, specialists=? WHERE record_id=?",
+                             (key, specs, r["record_id"]))
+                changed += 1
+    return changed
+
+
+def reindex(log=print) -> dict:
+    """Re-key forecast cells and rebuild the specialist collections for the
+    active window, without contacting the OCBC website."""
+    conn = store.connect(config.META_DB)
+    try:
+        window = store.get_state(conn, "active_window")
+        if not window:
+            raise RuntimeError("no active window yet; run a normal ingestion first")
+        log(f"Re-keyed {rekey_forecasts(conn)} forecast cells")
+        log(f"Rebuilding collections for {window['start']} to {window['end']} ...")
+        stats = indexer.build_collections(conn, window["start"], window["end"],
+                                          include_fixtures=config.DEV_FIXTURE_CORPUS, log=log)
+        return {"window": window, "collections": stats}
+    finally:
         conn.close()
 
 
