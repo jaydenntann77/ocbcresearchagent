@@ -8,6 +8,7 @@ import hashlib
 import re
 import statistics
 from dataclasses import dataclass, field
+from datetime import date
 
 import fitz  # PyMuPDF
 
@@ -173,7 +174,21 @@ def _header_columns(line) -> list[dict] | None:
     return cols
 
 
-def _extract_forecast_tables(page: fitz.Page, pno: int, lines) -> list[ExtractedTable]:
+def _doc_date(meta_creation: str | None) -> date | None:
+    m = re.match(r"D:(\d{4})(\d{2})(\d{2})", meta_creation or "")
+    try:
+        return date(int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else None
+    except ValueError:
+        return None
+
+
+def _extract_forecast_tables(page: fitz.Page, pno: int, lines, page_forecast: bool = False,
+                             doc_date: date | None = None) -> list[ExtractedTable]:
+    """Period-header tables. A table counts as a forecast when (a) "forecast"
+    appears in its title, group rows or footnotes; (b) it continues the
+    forecast table directly above it (one "Rates Forecast" box split into
+    USD and SGD blocks); (c) its page carries a "Latest Forecast Update" line;
+    or (d) by shape: every forward column ends after the document date."""
     tables: list[ExtractedTable] = []
     i = 0
     while i < len(lines):
@@ -215,7 +230,14 @@ def _extract_forecast_tables(page: fitz.Page, pno: int, lines) -> list[Extracted
             if re.search(r"forecast", t, re.I):
                 title = _clean(re.sub(r"^.*?\|\s*\d{1,2} \w+ 20\d{2}\s*", "", t))
                 break
-        rows, cells, footnotes, group = [], [], [], None
+        prev = tables[-1] if tables else None
+        continues = (title is None and prev is not None and prev.kind == "forecast"
+                     and header_line[0][1] - prev.bbox[3] < 60)
+        if continues:
+            title = prev.title
+        # Words left of the first period column name the block ("SGD Interest Rates").
+        lead = _clean(" ".join(w[4] for w in header_line if w[2] < cols[0]["x0"] - 2 and not PERIOD_RE.match(w[4].strip("():,"))))
+        rows, cells, footnotes, group = [], [], [], (lead or None)
         last_y = lines[j - 1][0][3]
         k = j
         while k < len(lines):
@@ -225,6 +247,8 @@ def _extract_forecast_tables(page: fitz.Page, pno: int, lines) -> list[Extracted
                 break
             if _header_columns(ln):
                 break
+            if re.search(r"podcasts?|telegram", text, re.I):
+                break  # running page footer ("Follow our podcasts ... on Telegram! 11")
             if re.match(r"^(Source|Note|Notes|\*)", text, re.I):
                 foot = [_clean(text)]
                 m = k + 1
@@ -280,7 +304,9 @@ def _extract_forecast_tables(page: fitz.Page, pno: int, lines) -> list[Extracted
             last_y = ln[0][3]
             k += 1
         context = " ".join([title or "", group or ""] + [r[0] for r in rows if not any(r[1:])] + footnotes)
-        is_forecast = bool(re.search(r"forecast", context, re.I))
+        forward = [horizon_end_date(_clean(c["label"])) for c in cols if not c["obs"]]
+        by_shape = bool(doc_date and len(forward) >= 2 and all(e and e > doc_date for e in forward))
+        is_forecast = bool(re.search(r"forecast", context, re.I)) or continues or page_forecast or by_shape
         if cells:
             data_date = None
             for f in footnotes + [title or ""]:
@@ -394,10 +420,11 @@ def extract(data: bytes) -> ExtractedDocument:
             continue
         words = page.get_text("words")
         lines = _lines_from_words(words)
-        ftables = _extract_forecast_tables(page, pno, lines)
+        page_dd = DATA_DATE_RE.search(full)
+        ftables = _extract_forecast_tables(page, pno, lines, bool(re.search(r"forecast update", full, re.I)),
+                                           _doc_date(meta.get("creationDate")))
         gtables = _extract_generic_tables(page, pno, [t.bbox for t in ftables], len(ftables))
         tables = ftables + gtables
-        page_dd = DATA_DATE_RE.search(full)
         for t in ftables:
             if t.kind == "forecast" and not t.data_date and page_dd:
                 # Stated once on the page for all forecast tables on it.

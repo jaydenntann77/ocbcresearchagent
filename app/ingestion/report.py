@@ -11,6 +11,11 @@ from datetime import date, datetime
 from app.common import config
 from app.common.freshness import label as freshness_label
 from app.common.timeutil import fmt_dt, fmt_range
+from app.ingestion.pipeline import unread_forecast_tables
+
+# Instruments OCBC's research normally carries a forecast for.
+CORE_FORECASTS = ["USDSGD", "EURUSD", "USDJPY", "USDCNH", "FEDFUNDS", "SOFR", "UST10Y", "SORA", "SORA3MCOMP",
+                  "SORAOIS10Y", "SGS10Y", "GOLD", "BRENT"]
 
 
 def main():
@@ -79,6 +84,20 @@ def main():
                                                  "quarantined")]
     L += ["", "## Inaccessible documents and failures", ""]
     L += [f"* {it['url']}: {it['state']} — {it['detail']}" for it in bad] or ["* None in this run."]
+    unread = unread_forecast_tables(conn)
+    L += ["", "## Forecast tables not read", "",
+          "Tables shaped like a forecast (two or more future-period columns) that produced no forecast cells. "
+          "The app cannot quote these numbers, so a question about them gets a missing-forecast answer.", ""]
+    L += [f"* {u['title']} ({u['publication_date']}), page {u['page']}: first row '{u['first_row']}'"
+          for u in unread] or ["* None."]
+    keys = {r[0] for r in conn.execute(
+        "SELECT DISTINCT f.instrument_key FROM forecast_records f JOIN documents d USING(doc_id) "
+        "WHERE d.status='indexed' AND f.is_observation=0")}
+    missing = [k for k in CORE_FORECASTS if k not in keys]
+    L += ["", "## Core forecasts missing", "",
+          "Instruments OCBC normally publishes a forecast for. Missing ones are either not published in the window "
+          "or not read by the parser.", ""]
+    L += [f"* {k}" for k in missing] or ["* None - all present."]
     susp = conn.execute("SELECT COUNT(*) FROM chunks WHERE suspicious=1").fetchone()[0]
     L += ["", f"Passages withheld for embedded instruction-like text: {susp}.", ""]
     out = config.ROOT / "reports" / "ingestion_report.md"

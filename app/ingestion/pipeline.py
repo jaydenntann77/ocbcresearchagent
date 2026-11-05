@@ -103,27 +103,32 @@ def _store_document(conn, doc_id, sha, item: ListingItem, ext, res: dates.DateRe
                       json.dumps([p.pdf_page for p in ext.pages if p.ocr]), int(dev_fixture)))
         if status != "indexed":
             return specs, len(chunks)
-        for p in ext.pages:
-            conn.execute("INSERT INTO pages VALUES(?,?,?,?,?,?)",
-                         (doc_id, p.pdf_page, p.printed_page, p.full_text, int(p.ocr), int(p.ocr_failed)))
-        for c in chunks:
-            conn.execute("INSERT INTO chunks VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                         (c.chunk_id, doc_id, c.pdf_page, c.printed_page, c.section, c.kind, c.text, c.table_id, c.seq,
-                          json.dumps(c.specialists), int(bool(c.suspicious_reason)), c.suspicious_reason, int(c.ocr)))
-        table_chunk = {c.table_id: c.chunk_id for c in chunks if c.table_id}
-        for p in ext.pages:
-            for t in p.tables:
-                if t.kind != "forecast":
-                    continue
-                for n, cell in enumerate(t.cells):
-                    rid = f"{doc_id}-{t.table_id}-r{n}"
-                    conn.execute("INSERT INTO forecast_records VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (
-                        rid, doc_id, t.table_id, p.pdf_page, table_chunk.get(t.table_id), cell.instrument_label,
-                        cell.instrument_key, cell.group_label, cell.horizon_label, cell.horizon_kind, cell.horizon_end,
-                        cell.value, cell.unit, cell.scenario, int(cell.is_observation), t.title,
-                        json.dumps(t.footnotes), t.data_date,
-                        json.dumps(chunking.forecast_key_specialists(cell.instrument_key))))
+        _insert_content(conn, doc_id, ext, chunks)
     return specs, len(chunks)
+
+
+def _insert_content(conn, doc_id, ext, chunks):
+    """Pages, chunks and forecast cells for one document (caller holds the transaction)."""
+    for p in ext.pages:
+        conn.execute("INSERT INTO pages VALUES(?,?,?,?,?,?)",
+                     (doc_id, p.pdf_page, p.printed_page, p.full_text, int(p.ocr), int(p.ocr_failed)))
+    for c in chunks:
+        conn.execute("INSERT INTO chunks VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                     (c.chunk_id, doc_id, c.pdf_page, c.printed_page, c.section, c.kind, c.text, c.table_id, c.seq,
+                      json.dumps(c.specialists), int(bool(c.suspicious_reason)), c.suspicious_reason, int(c.ocr)))
+    table_chunk = {c.table_id: c.chunk_id for c in chunks if c.table_id}
+    for p in ext.pages:
+        for t in p.tables:
+            if t.kind != "forecast":
+                continue
+            for n, cell in enumerate(t.cells):
+                rid = f"{doc_id}-{t.table_id}-r{n}"
+                conn.execute("INSERT INTO forecast_records VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (
+                    rid, doc_id, t.table_id, p.pdf_page, table_chunk.get(t.table_id), cell.instrument_label,
+                    cell.instrument_key, cell.group_label, cell.horizon_label, cell.horizon_kind, cell.horizon_end,
+                    cell.value, cell.unit, cell.scenario, int(cell.is_observation), t.title,
+                    json.dumps(t.footnotes), t.data_date,
+                    json.dumps(chunking.forecast_key_specialists(cell.instrument_key))))
 
 
 def _meta_title_flags(meta_title: str | None, pub: date | None) -> list[str]:
@@ -292,15 +297,77 @@ def rekey_forecasts(conn) -> int:
     return changed
 
 
-def reindex(log=print) -> dict:
+def reparse_documents(conn, log=print) -> int:
+    """Re-extract every indexed document from its stored PDF, so parser
+    changes apply to documents ingested earlier. Dates and listing metadata
+    are kept as resolved at ingestion."""
+    from pathlib import Path
+    done = 0
+    for d in conn.execute("SELECT * FROM documents WHERE status='indexed'").fetchall():
+        path = Path(d["raw_path"] or "")
+        if not path.is_file():
+            log(f"  skipped {d['doc_id']}: stored PDF missing")
+            continue
+        try:
+            ext = extract(path.read_bytes())
+        except Exception as exc:  # noqa: BLE001
+            log(f"  skipped {d['doc_id']}: {type(exc).__name__}: {exc}")
+            continue
+        primary = chunking.primary_specialist(d["category"], d["section"], d["subcategory"])
+        chunks = chunking.build_chunks(d["doc_id"], ext, primary)
+        specs = sorted({s for c in chunks if not c.suspicious_reason for s in c.specialists})
+        with conn:
+            for tbl in ("pages", "chunks", "forecast_records"):
+                conn.execute(f"DELETE FROM {tbl} WHERE doc_id=?", (d["doc_id"],))
+            conn.execute("UPDATE documents SET specialists=?, warnings=?, ocr_pages=? WHERE doc_id=?",
+                         (json.dumps(specs), json.dumps(ext.warnings),
+                          json.dumps([p.pdf_page for p in ext.pages if p.ocr]), d["doc_id"]))
+            _insert_content(conn, d["doc_id"], ext, chunks)
+        done += 1
+    return done
+
+
+PERIOD_TOKEN = re.compile(r"\b(?:[1-4]Q\d{2}F?|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2}|20\d{2}F)\b")
+
+
+def unread_forecast_tables(conn) -> list[dict]:
+    """Tables shaped like a forecast (two or more header columns ending after
+    the publication date) that produced no forecast cells. Each one is a
+    forecast the app cannot quote, so the ingestion report lists them."""
+    from app.common.timeutil import horizon_end_date
+    out = []
+    rows = conn.execute("""SELECT c.doc_id, c.table_id, c.pdf_page, c.text, d.title, d.publication_date
+        FROM chunks c JOIN documents d USING(doc_id)
+        WHERE c.kind='table' AND d.status='indexed' AND NOT EXISTS (
+          SELECT 1 FROM forecast_records f WHERE f.doc_id=c.doc_id AND f.table_id=c.table_id)
+        ORDER BY d.publication_date DESC, c.doc_id, c.pdf_page""").fetchall()
+    for r in rows:
+        header = next((ln for ln in r["text"].splitlines() if "|" in ln), "")
+        cells = [x.strip() for x in header.split("|")]
+        ends = [horizon_end_date(x.rstrip("F")) for x in cells if PERIOD_TOKEN.fullmatch(x)]
+        if sum(bool(e and e.isoformat() > (r["publication_date"] or "")) for e in ends) >= 2:
+            first = next((ln.split("|")[0].strip() for ln in r["text"].splitlines()[1:] if "|" in ln), "")
+            out.append({"doc_id": r["doc_id"], "title": r["title"], "publication_date": r["publication_date"],
+                        "page": r["pdf_page"], "table_id": r["table_id"], "first_row": first})
+    return out
+
+
+def reindex(log=print, reparse: bool = False) -> dict:
     """Re-key forecast cells and rebuild the specialist collections for the
-    active window, without contacting the OCBC website."""
+    active window, without contacting the OCBC website. With reparse, first
+    re-extract every stored PDF so parser changes take effect."""
     conn = store.connect(config.META_DB)
     try:
         window = store.get_state(conn, "active_window")
         if not window:
             raise RuntimeError("no active window yet; run a normal ingestion first")
+        if reparse:
+            log(f"Re-parsed {reparse_documents(conn, log)} stored PDFs")
         log(f"Re-keyed {rekey_forecasts(conn)} forecast cells")
+        unread = unread_forecast_tables(conn)
+        log(f"Forecast-shaped tables with no forecast cells: {len(unread)}")
+        for u in unread:
+            log(f"  {u['title']} ({u['publication_date']}) p{u['page']}: starts '{u['first_row']}'")
         log(f"Rebuilding collections for {window['start']} to {window['end']} ...")
         stats = indexer.build_collections(conn, window["start"], window["end"],
                                           include_fixtures=config.DEV_FIXTURE_CORPUS, log=log)

@@ -1,4 +1,4 @@
-"""CLI: python -m app.ingestion.run [--days N] [--reindex]
+"""CLI: python -m app.ingestion.run [--days N] [--reindex [--reparse]]
 
 Runs an ingestion under the ingestion service's network policy (OCBC
 research boundary + loopback only)."""
@@ -17,11 +17,13 @@ def main():
                          "Any other value is recorded and displayed as an explicit expansion.")
     ap.add_argument("--reindex", action="store_true",
                     help="don't crawl: recompute forecast keys and rebuild the search collections for the current window")
+    ap.add_argument("--reparse", action="store_true",
+                    help="with --reindex: re-extract every stored PDF first, so parser changes take effect")
     args = ap.parse_args()
     install_ingestion_guard()
     if args.reindex:
         from app.ingestion.pipeline import reindex
-        result = reindex()
+        result = reindex(reparse=args.reparse)
         print(json.dumps({"window": result["window"]}, indent=2))
         return
     from app.ingestion.pipeline import run_ingestion

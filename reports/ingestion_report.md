@@ -1,7 +1,7 @@
 # Ingestion and coverage report
 
 * **Requested window:** 1 October – 5 November 2026 inclusive (36 calendar days ending on the run date, Asia/Singapore). Expanded beyond default: yes.
-* **First full run:** `run-20261105-094141-210b` started 5 Nov 2026, 09:41 SGT.
+* **First full run:** `run-20261105-134453-c507` started 5 Nov 2026, 13:44 SGT.
 
 * **Source boundary:** https://www.ocbc.com research pages and `/iwov-resources/sg/ocbc/gbc/pdf/` only; robots.txt honoured; ≥1 s between requests; bounded retries; every redirect re-checked against the allow-list.
 * **Coverage complete:** NO - see failures below.
@@ -11,10 +11,10 @@
 | Outcome | Count |
 |---|--:|
 | Discovered (unique PDF URLs) | 146 |
-| Downloaded, validated and indexed | 22 |
+| Downloaded, validated and indexed | 95 |
 | Excluded by publication date | 29 |
 | Duplicates (same content hash) | 0 |
-| Quarantined (date uncertain) | 1 |
+| Quarantined (date uncertain) | 0 |
 | Inaccessible | 3 |
 | Download failed | 0 |
 | Invalid PDF | 0 |
@@ -58,11 +58,11 @@
 
 | Specialist | Documents | Passages | Forecast cells |
 |---|--:|--:|--:|
-| FX | 79 | 353 | 2110 |
-| RATES | 85 | 308 | 471 |
-| MACRO | 92 | 1142 | 430 |
-| EQUITIES | 34 | 136 | 0 |
-| CREDIT | 44 | 369 | 0 |
+| FX | 80 | 348 | 2110 |
+| RATES | 88 | 281 | 471 |
+| MACRO | 94 | 1112 | 430 |
+| EQUITIES | 35 | 120 | 0 |
+| CREDIT | 47 | 383 | 0 |
 
 Multi-sector reports (e.g. Daily Treasury Outlook, Daily Credit Snapshot) are indexed section-by-section into every specialist collection their content belongs to, keeping the original document ID and page.
 
@@ -72,22 +72,23 @@ Multi-sector reports (e.g. Daily Treasury Outlook, Daily Credit Snapshot) are in
 
 | Published | Title | Type / age | Date basis | Specialists | OCR pages | Doc ID |
 |---|---|---|---|---|---|---|
-| 2026-11-05 | [Daily Treasury Outlook (5 Nov 2026)](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/Daily%20Treasury%20Outlook/2026/DTO%20051126.pdf) | daily · Recent (0d at window end) | listing date and printed date agree (high) | EQUITIES, FX, MACRO, RATES | — | `ocbc-b8babd76c8dd` |
+| 2026-11-05 | [Daily Treasury Outlook (5 Nov 2026)](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/Daily%20Treasury%20Outlook/2026/DTO%20051126.pdf) | daily · Recent (0d at window end) | listing date and printed date agree (high) | CREDIT, EQUITIES, FX, MACRO, RATES | — | `ocbc-b8babd76c8dd` |
 | 2026-11-04 | [Daily Credit Snapshot (04 Nov)](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/Credit%20Research/Asian%20Credit%20Daily/2026/OCBC%20Daily%20Credit%20Snapshot%20-%2004%20November%202026.pdf) | daily · Recent (1d at window end) | listing date and printed date agree (high) | CREDIT, FX, RATES | — | `ocbc-2748e32c43f6` |
 | 2026-11-04 | [Daily Market Outlook: AUD Nears Its Limit](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/FX%20Outlook/DMO/2026/Softer%20UST%20yields%3B%20toppish%20AUD%20rates.pdf) | daily · Recent (1d at window end) | listing date and printed date agree (high) | FX, RATES | — | `ocbc-890fc55b8cca` |
-| 2026-11-04 | [Daily Treasury Outlook (4 November 2026)](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/Daily%20Treasury%20Outlook/2026/DTO%20041126.pdf) | daily · Recent (1d at window end) | listing date and printed date agree (high) | EQUITIES, FX, MACRO, RATES | — | `ocbc-a649c6dad40c` |
+| 2026-11-04 | [Daily Treasury Outlook (4 November 2026)](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/Daily%20Treasury%20Outlook/2026/DTO%20041126.pdf) | daily · Recent (1d at window end) | listing date and printed date agree (high) | CREDIT, EQUITIES, FX, MACRO, RATES | — | `ocbc-a649c6dad40c` |
 | 2026-11-04 | [Sustainability Weekly (4 Nov 2026)](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/sustainability/Sustainability%20Weekly%2020261104.pdf) | weekly · Recent (1d at window end) | listing date and printed date agree (high) | MACRO | — | `ocbc-00bdc38be8fd` |
 | 2026-11-03 | [Daily Credit Snapshot (03 Nov)](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/Credit%20Research/Asian%20Credit%20Daily/2026/OCBC%20Daily%20Credit%20Snapshot%20-%2003%20November%202026.pdf) | daily · Recent (2d at window end) | listing date and printed date agree (high) | CREDIT, FX, MACRO, RATES | — | `ocbc-fd8277aa8e55` |
-| 2026-11-03 | [Daily Market Outlook: Oil Relief, AI Doubts](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/FX%20Outlook/DMO/2026/DMO%20110326.pdf) | daily · Recent (2d at window end) | listing date and printed date agree (high) | FX, MACRO | — | `ocbc-6d43d67051aa` |
+| 2026-11-03 | [Daily Market Outlook: Oil Relief, AI Doubts](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/FX%20Outlook/DMO/2026/DMO%20110326.pdf) | daily · Recent (2d at window end) | listing date and printed date agree (high) | FX, MACRO, RATES | — | `ocbc-6d43d67051aa` |
 | 2026-11-03 | [Daily Treasury Outlook (3 November 2026)](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/Daily%20Treasury%20Outlook/2026/DTO%20031126.pdf) | daily · Recent (2d at window end) | listing date and printed date agree (high) | CREDIT, EQUITIES, FX, MACRO, RATES | — | `ocbc-344f196110d2` |
 | 2026-11-03 | [Interest Rates Focus: USTs marked time; PBoC hiked FX reserve ratio](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/FX%20Outlook/Interest%20rates/USTs%20marked%20time%3B%20PBoC%20hiked%20FX%20reserve%20ratio.pdf) | thematic · Recent (2d at window end) | listing date and printed date agree (high) | FX, RATES | — | `ocbc-6c22920d27d7` |
+| 2026-11-02 | [Daily Credit Snapshot (02 Nov)](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/Credit%20Research/Asian%20Credit%20Daily/2026/OCBC%20Daily%20Credit%20Snapshot%20-%2002%20November%202026.pdf) | daily · Older (3d at window end) | listing date and printed date agree (high) | CREDIT, FX, MACRO, RATES | — | `ocbc-b8fff5b4e5b1` |
 | 2026-11-02 | [Daily Treasury Outlook (2 November 2026)](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/Daily%20Treasury%20Outlook/2026/DTO%20021126.pdf) | daily · Older (3d at window end) | listing date and printed date agree (high) | CREDIT, EQUITIES, FX, MACRO, RATES | — | `ocbc-a88fce5d6160` |
 | 2026-11-02 | [FX Outlook: RMB: Longer Runway for Measured Appreciation](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/FX%20Outlook/FX%20Ideas/RMB_%20Longer%20Runway%20for%20Measured%20Appreciation.pdf) | thematic · Recent (3d at window end) | listing date and printed date agree (high) | FX | — | `ocbc-f6103634c849` |
 | 2026-11-02 | [FX Weekly: Firm, Not One-Way](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/FX%20Outlook/FX%20Ideas/FX%20Weekly%20110226.pdf) | weekly · Recent (3d at window end) | listing date and printed date agree (high) | FX, MACRO, RATES | — | `ocbc-fe1023b392fb` |
 | 2026-11-02 | [Interest Rates Focus: Rates: Event risks this week; PBoC benchmark](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/FX%20Outlook/Interest%20rates/Event%20risks%20this%20week%3B%20PBoC%20benchmark.pdf) | thematic · Recent (3d at window end) | listing date and printed date agree (high) | RATES | — | `ocbc-e6f1fbf5482b` |
 | 2026-11-02 | [Weekly Macro View (2 Nov 2026)](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/Weekly%20Macro%20View/WMV%202%20Nov%202026.pdf) | weekly · Recent (3d at window end) | listing date and printed date agree (high) | FX, MACRO, RATES | 1, 18, 20, 21, 22 | `ocbc-ee1f36deea6a` |
 | 2026-10-30 | [Daily Credit Snapshot (30 Oct)](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/Credit%20Research/Asian%20Credit%20Daily/2026/OCBC%20Daily%20Credit%20Snapshot%20-%2030%20October%202026.pdf) | daily · Older (6d at window end) | listing date and printed date agree (high) | CREDIT, EQUITIES, FX, MACRO, RATES | — | `ocbc-8179eedfbcb2` |
-| 2026-10-30 | [Daily Market Outlook: AI Changes Risk-Off](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/FX%20Outlook/DMO/2026/DMO%20103026.pdf) | daily · Older (6d at window end) | listing date and printed date agree (high) | FX, MACRO, RATES | — | `ocbc-f238366707ce` |
+| 2026-10-30 | [Daily Market Outlook: AI Changes Risk-Off](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/FX%20Outlook/DMO/2026/DMO%20103026.pdf) | daily · Older (6d at window end) | listing date and printed date agree (high) | EQUITIES, FX, MACRO, RATES | — | `ocbc-f238366707ce` |
 | 2026-10-30 | [Daily Treasury Outlook (30 October 2026](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/Daily%20Treasury%20Outlook/2026/DTO%20301026%20.pdf) | daily · Older (6d at window end) | listing date and printed date agree (high) | CREDIT, EQUITIES, FX, MACRO, RATES | — | `ocbc-33c4aa111a0a` |
 | 2026-10-29 | [Daily Credit Snapshot (29 Oct)](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/Credit%20Research/Credit%20Weekly/OCBC%20Daily%20Credit%20Snapshot%20-%2029%20October%202026.pdf) | daily · Older (7d at window end) | listing date and printed date agree (high) | CREDIT, FX, MACRO, RATES | — | `ocbc-14a05391fbbe` |
 | 2026-10-29 | [Daily Market Outlook: USD Support, Upside Capped](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/FX%20Outlook/DMO/2026/DMO%20102926.pdf) | daily · Older (7d at window end) | listing date and printed date agree (high) | FX, MACRO, RATES | — | `ocbc-23a1639632ad` |
@@ -137,14 +138,15 @@ Multi-sector reports (e.g. Daily Treasury Outlook, Daily Credit Snapshot) are in
 | 2026-10-16 | [Daily Market Outlook: USD’s AI Achilles’ Heel](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/FX%20Outlook/DMO/2026/DMO%20101626.pdf) | daily · Stale (20d at window end) | listing date and printed date agree (high) | FX, MACRO | — | `ocbc-939b7dfdf799` |
 | 2026-10-16 | [Daily Treasury Outlook (16 October 2026)](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/Daily%20Treasury%20Outlook/2026/DTO%20161026.pdf) | daily · Stale (20d at window end) | listing date and printed date agree (high) | CREDIT, EQUITIES, FX, MACRO, RATES | — | `ocbc-3b91f1e0220f` |
 | 2026-10-16 | [Indonesia: MSCI reclassification risks loom](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/Regional%20Focus/Indonesia/ID.MSCI.StandaloneConsultation.16Oct27.pdf) | thematic · Older (20d at window end) | listing date and printed date agree (high) | MACRO | — | `ocbc-9d40f3050c8c` |
-| 2026-10-15 | [Daily Market Outlook: Why Isn’t USD Stronger?](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/FX%20Outlook/DMO/2026/DMO%20101526.pdf) | daily · Stale (21d at window end) | listing date and printed date agree (high) | FX, MACRO, RATES | — | `ocbc-486e1188a7b6` |
+| 2026-10-15 | [Daily Market Outlook: Why Isn’t USD Stronger?](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/FX%20Outlook/DMO/2026/DMO%20101526.pdf) | daily · Stale (21d at window end) | listing date and printed date agree (high) | FX, RATES | — | `ocbc-486e1188a7b6` |
 | 2026-10-15 | [Daily Treasury Outlook (15 October 2026)](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/Daily%20Treasury%20Outlook/2026/DTO%20151026%20.pdf) | daily · Stale (21d at window end) | listing date and printed date agree (high) | CREDIT, EQUITIES, FX, MACRO, RATES | — | `ocbc-a0a999a6f4de` |
+| 2026-10-15 | [Global Outlook: United States: CPI Review - Core in line but headline missed narrowly](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/Regional%20Focus/Global%20Outlook/US.CPISeptember2026Review.15Oct26.pdf) | thematic · Older (21d at window end) | listing date and printed date agree (high) | MACRO, RATES | — | `ocbc-a8e8003c49e7` |
 | 2026-10-15 | [Global Outlook: United States: Midterms 2026 Part 2](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/Regional%20Focus/Global%20Outlook/US.Midtermspart2.15Oct26%20.pdf) | thematic · Older (21d at window end) | listing date only (medium) | CREDIT, MACRO, RATES | — | `ocbc-0d3b0b0d11e0` |
 | 2026-10-15 | [Interest Rates Focus: Bonds rallied; CNY rates softened](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/FX%20Outlook/Interest%20rates/Bonds%20rallied%3B%20CNY%20rates%20softened.pdf) | thematic · Older (21d at window end) | printed date (minor listing discrepancy) (medium) | RATES | — | `ocbc-240f03bc27e7` |
 | 2026-10-14 | [Daily Market Outlook: Breakout On Hold](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/FX%20Outlook/DMO/2026/DMO%20101426.pdf) | daily · Stale (22d at window end) | listing date and printed date agree (high) | FX, MACRO | — | `ocbc-5a3b5043fb1a` |
 | 2026-10-14 | [Daily Treasury Outlook (14 October 2026)](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/Daily%20Treasury%20Outlook/2026/DTO%20141026%20.pdf) | daily · Stale (22d at window end) | listing date and printed date agree (high) | CREDIT, EQUITIES, FX, MACRO, RATES | — | `ocbc-f3d2497274e8` |
 | 2026-10-14 | [Global Outlook: United States: Midterms 2026 Part 1](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/Regional%20Focus/Global%20Outlook/US.Midtermspart1.14Oct26.pdf) | thematic · Older (22d at window end) | listing date and printed date agree (high) | MACRO | — | `ocbc-5e8287709fdf` |
-| 2026-10-14 | [Interest Rates Focus: MAS kept policy on hold](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/FX%20Outlook/Interest%20rates/MAS%20kept%20policy%20on%20hold.pdf) | thematic · Older (22d at window end) | listing date and printed date agree (high) | FX, RATES | — | `ocbc-5f5ab9155f76` |
+| 2026-10-14 | [Interest Rates Focus: MAS kept policy on hold](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/FX%20Outlook/Interest%20rates/MAS%20kept%20policy%20on%20hold.pdf) | thematic · Older (22d at window end) | listing date and printed date agree (high) | FX, MACRO, RATES | — | `ocbc-5f5ab9155f76` |
 | 2026-10-14 | [Singapore's 3Q26 GDP moderates while MAS held S$NEER policy unchanged](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/Regional%20Focus/Singapore/SG.3QGDPandMAS14Oct26.pdf) | thematic · Older (22d at window end) | listing date and printed date agree (high) | MACRO, RATES | — | `ocbc-a245a4495a06` |
 | 2026-10-13 | [Daily Market Outlook: Supported, Not Surging](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/FX%20Outlook/DMO/2026/DMO%20101326.pdf) | daily · Stale (23d at window end) | listing date and printed date agree (high) | FX, MACRO, RATES | — | `ocbc-d0c611a71ed5` |
 | 2026-10-13 | [Daily Treasury Outlook (13 October 2026)](https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/Daily%20Treasury%20Outlook/2026/DTO%20131026%20.pdf) | daily · Stale (23d at window end) | listing date and printed date agree (high) | CREDIT, EQUITIES, FX, MACRO, RATES | — | `ocbc-d7d510145fc7` |
@@ -193,7 +195,6 @@ Multi-sector reports (e.g. Daily Treasury Outlook, Daily Credit Snapshot) are in
 * Interest Rates Focus: Bonds rallied; CNY rates softened: listing date 2026-10-16 differs from printed date 2026-10-15 by 1 day(s); printed date used
 * Credit Week in Brief (05 Oct): listing date 2026-10-05 differs from printed date 2026-10-06 by 1 day(s); printed date used
 * Download PDF: no website listing date; printed date used
-* Global Outlook: United States: CPI Review - Core in line but headline missed narrowly: listing date 2026-10-15 conflicts with printed date 2026-10-05 (10 days)
 
 ## Excluded by date
 
@@ -234,7 +235,18 @@ Multi-sector reports (e.g. Daily Treasury Outlook, Daily Credit Snapshot) are in
 * https://www.ocbc.com/Softer%20UST%20yields%3B%20toppish%20AUD%20rates.pdf: inaccessible — source boundary: path outside OCBC research boundary: /Softer UST yields; toppish AUD rates.pdf
 * https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/Credit%20Research/Asian%20Credit%20Daily/2026/OCBC%20Daily%20Credit%20Snapshot%20-%2019%20October%202026.pdf: inaccessible — source boundary: path outside OCBC research boundary: /html/404.html
 * https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/Daily%20Treasury%20Outlook/2026/DTO%20021026%20.pdf: inaccessible — source boundary: path outside OCBC research boundary: /html/404.html
-* https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/Regional%20Focus/Global%20Outlook/US.CPISeptember2026Review.15Oct26.pdf: quarantined — listing date 2026-10-15 conflicts with printed date 2026-10-05 (10 days)
+
+## Forecast tables not read
+
+Tables shaped like a forecast (two or more future-period columns) that produced no forecast cells. The app cannot quote these numbers, so a question about them gets a missing-forecast answer.
+
+* None.
+
+## Core forecasts missing
+
+Instruments OCBC normally publishes a forecast for. Missing ones are either not published in the window or not read by the parser.
+
+* None - all present.
 
 Passages withheld for embedded instruction-like text: 0.
 

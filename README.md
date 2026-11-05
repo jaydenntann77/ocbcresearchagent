@@ -42,7 +42,9 @@ python -m app.ingestion.run
 The step above runs the OCBC ingestion for the configured window (`RA_INGEST_WINDOW_DAYS`, default 7 days). It is
 safe to re-run. `--days N` runs a one-off window that answers display as *expanded*. `--reindex` rebuilds the
 search indexes from the PDFs already downloaded without contacting OCBC; use it after changing the
-instrument rules.
+instrument rules. Add `--reparse` to also re-read every stored PDF, which is needed after changing the PDF
+parser. Both print any table shaped like a forecast that produced no forecast numbers; the ingestion report
+lists them too, along with any core instrument (USD/SGD, Fed funds, SORA, SGS…) that has no forecast.
 
 ```bash
 python run.py

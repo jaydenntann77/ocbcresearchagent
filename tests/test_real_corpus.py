@@ -161,3 +161,23 @@ def test_each_requested_rate_is_accounted_for():
         assert has_rows != says_missing, (key, res)
     for labels in res["conflicts"]:
         assert len(labels) <= 1, f"conflict mixes different instruments: {labels}"
+
+
+RESEARCH_MONITOR_OCT = "ocbc-833b9346e8b6"
+
+
+def test_research_monitor_rates_blocks_are_forecasts(conn):
+    # The SGD block of the "Rates Forecast" box and the yield tables on the next page.
+    if not _in_window(conn, RESEARCH_MONITOR_OCT):
+        pytest.skip("Research Monitor (Oct) not in the active window")
+    rows = {(r["instrument_key"], r["horizon_label"]): r["value"] for r in conn.execute(
+        "SELECT instrument_key, horizon_label, value FROM forecast_records WHERE doc_id=?", (RESEARCH_MONITOR_OCT,))}
+    assert rows[("SORA", "4Q26")] == "1.40" and rows[("SORA", "4Q27")] == "1.60"
+    assert rows[("SORA3MCOMP", "4Q26")] == "1.38" and rows[("SORAOIS10Y", "4Q26")] == "2.70"
+    assert rows[("SGS10Y", "4Q26")]
+    assert not any(k.startswith("FOLLOWOURPODCASTS") for k, _ in rows)
+
+
+def test_every_forecast_shaped_table_is_read(conn):
+    from app.ingestion.pipeline import unread_forecast_tables
+    assert unread_forecast_tables(conn) == []

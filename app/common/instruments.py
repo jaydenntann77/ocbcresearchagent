@@ -35,6 +35,10 @@ BENCHMARK_RATES = {
 }
 
 
+# "3M SGD OIS" is quoted by currency but references that currency's overnight rate.
+OIS_CURRENCY = {"SGD": "SORA", "USD": "SOFR", "JPY": "TONA", "GBP": "SONIA", "EUR": "ESTR"}
+
+
 def find_benchmarks(text: str) -> list[str]:
     """Benchmark overnight rates named in free text, in order of appearance."""
     hits = []
@@ -80,9 +84,14 @@ def instrument_key(label: str) -> str:
     # overnight rate itself ("3M TONAR OIS" vs "JPY TONAR").
     m = re.match(r"^\s*(\d{1,2}[MY])\s+(.+?)\s+OIS\b", raw, re.I)
     if m:
-        base = instrument_key(m.group(2))
+        base = OIS_CURRENCY.get(m.group(2).strip().upper()) or instrument_key(m.group(2))
         if base in BENCHMARK_RATES or base == "SOFR":
             return f"{base}OIS{m.group(1).upper()}"
+    # A compounded average ("3M compounded SORA") is a different series from
+    # the overnight rate, so it needs its own key.
+    m = re.match(r"^\s*(\d{1,2}M)\s+compounded\s+(.+)$", raw, re.I)
+    if m:
+        return f"{instrument_key(m.group(2))}{m.group(1).upper()}COMP"
     for rx, key in RATE_PATTERNS:
         m = rx.search(raw)
         if m:
@@ -129,7 +138,11 @@ def display_name(key: str) -> str:
     """Readable name for an instrument key (ESTR -> €STR, USDSGD -> USD/SGD)."""
     m = re.fullmatch(r"([A-Z]+)OIS(\d{1,2}[MY])", key)
     if m and (m.group(1) in BENCHMARK_RATES or m.group(1) == "SOFR"):
-        return f"{m.group(2)} {display_name(m.group(1))} OIS"
+        ccy = "SGD" if m.group(1) == "SORA" else None  # the research says "SGD OIS", not "SORA OIS"
+        return f"{m.group(2)} {ccy or display_name(m.group(1))} OIS"
+    m = re.fullmatch(r"([A-Z]+)(\d{1,2}M)COMP", key)
+    if m:
+        return f"{m.group(2)} compounded {display_name(m.group(1))}"
     if key in BENCHMARK_RATES:
         return BENCHMARK_RATES[key][1]
     if len(key) == 6 and key[:3] in CURRENCIES and key[3:] in CURRENCIES:
@@ -148,6 +161,11 @@ def instrument_aliases(key: str) -> list[str]:
         return [key] + RATE_ALIASES[key]
     if key in BENCHMARK_RATES:
         return BENCHMARK_RATES[key][2]
+    m = re.fullmatch(r"([A-Z]+)(?:OIS(\d{1,2}[MY])|(\d{1,2}M)COMP)", key)
+    if m and m.group(1) in BENCHMARK_RATES | {"SOFR": None}:
+        base = instrument_aliases(m.group(1)) if m.group(1) != "SOFR" else ["SOFR"]
+        ois = ["SGD OIS"] if m.group(1) == "SORA" else []
+        return [key, m.group(2) or m.group(3)] + (["OIS"] + ois if m.group(2) else ["compounded"]) + base
     m = _TENOR_KEY.fullmatch(key)
     if m:
         kind, n = m.groups()

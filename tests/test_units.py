@@ -159,3 +159,58 @@ def test_no_evidence_message_names_instruments():
         "The ingested OCBC research does not contain a verified forecast for SORA or TONA."
     # "this horizon" only when the instrument exists but not for the requested years
     assert no_evidence_message(plan, [{"type": "horizon_not_covered", "text": ""}]) == NO_FORECAST
+
+
+def test_sgd_ois_and_compounded_sora_keys():
+    from app.common.instruments import display_name
+    assert instrument_key("3M SGD OIS") == "SORAOIS3M" and display_name("SORAOIS3M") == "3M SGD OIS"
+    assert instrument_key("3M compounded SORA") == "SORA3MCOMP" != instrument_key("SORA") == "SORA"
+    assert display_name("SORA3MCOMP") == "3M compounded SORA"
+    assert instrument_key("10Y SOFR OIS") == "SOFROIS10Y"
+
+
+def _forecast_page(blocks, creation="D:20261001090000+08'00'"):
+    """One-page PDF with period-header tables at the given y positions."""
+    import fitz
+    doc = fitz.open()
+    doc.set_metadata({"creationDate": creation})
+    page = doc.new_page(width=600, height=800)
+    for y, title, lead, cols, rows in blocks:
+        if title:
+            page.insert_text((40, y - 20), title, fontsize=10)
+        page.insert_text((40, y), lead, fontsize=9)
+        for n, c in enumerate(cols):
+            page.insert_text((250 + 60 * n, y), c, fontsize=9)
+        for r, (label, vals) in enumerate(rows, 1):
+            page.insert_text((40, y + 14 * r), label, fontsize=9)
+            for n, v in enumerate(vals):
+                page.insert_text((250 + 60 * n, y + 14 * r), v, fontsize=9)
+    page.insert_text((40, 780), "Follow our podcasts by searching on Telegram! 11", fontsize=8)
+    return doc.tobytes()
+
+
+def test_forecast_block_under_a_forecast_heading_is_read():
+    # One "Rates Forecast" box split into USD and SGD blocks; only the first has the heading.
+    from app.ingestion.pdfparse import extract
+    q = ["4Q26", "1Q27", "2Q27"]
+    pdf = _forecast_page([
+        (100, "Rates Forecast", "USD Interest Rates", q, [("SOFR", ["4.15", "4.15", "4.15"])]),
+        (140, None, "SGD Interest Rates", q, [("SORA", ["1.40", "1.45", "1.50"]),
+                                               ("3M compounded SORA", ["1.38", "1.43", "1.48"])]),
+    ])
+    tables = [t for p in extract(pdf).pages for t in p.tables]
+    sgd = next(t for t in tables if any(c.instrument_key == "SORA" for c in t.cells))
+    assert sgd.kind == "forecast" and sgd.title == "Rates Forecast"
+    assert {c.group_label for c in sgd.cells} == {"SGD Interest Rates"}
+    assert [c.value for c in sgd.cells if c.instrument_key == "SORA3MCOMP"] == ["1.38", "1.43", "1.48"]
+
+
+def test_untitled_table_of_future_periods_is_a_forecast():
+    from app.ingestion.pdfparse import extract
+    pdf = _forecast_page([(300, None, "", ["Dec-26", "Mar-27", "Jun-27"],
+                           [("USDCNY", ["6.62", "6.58", "6.53"])])])
+    t = next(t for p in extract(pdf).pages for t in p.tables if t.cells)
+    assert t.kind == "forecast" and {c.instrument_key for c in t.cells} == {"USDCNY"}
+    # Past periods relative to the document date are not treated as a forecast by shape alone.
+    old = _forecast_page([(300, None, "", ["1Q26", "2Q26", "3Q26"], [("GDP", ["1.0", "1.2", "1.4"])])])
+    assert all(t.kind != "forecast" for p in extract(old).pages for t in p.tables)
