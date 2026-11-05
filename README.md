@@ -11,8 +11,10 @@ when the question needs them), and then validates the returned evidence. The ans
 * dated rationale excerpts. Each citation opens the source PDF page with the excerpt highlighted.
 * a clear statement of what is missing, conflicting or stale
 
-The current corpus was ingested on **1 Nov 2026 (SGT)** and covers **26 October – 1 November 2026**.
-It holds 25 documents (see [reports/ingestion_report.md](reports/ingestion_report.md)).
+The current corpus was ingested on **5 Nov 2026 (SGT)** and covers **7 October – 5 November 2026**, a 30-day
+window set with `RA_INGEST_WINDOW_DAYS=30` in `.env`. It holds 91 documents (see
+[reports/ingestion_report.md](reports/ingestion_report.md)). Documents that drop out of the window are kept on
+disk; widening the window again brings them back into answers without re-downloading.
 
 > **Want to make changes?** Read [CONTRIBUTING.md](CONTRIBUTING.md) first. It covers how to run your own
 > copy, how to test a change, and how changes reach the live demo. Pushing to GitHub does **not** update the
