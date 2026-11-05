@@ -134,3 +134,19 @@ def test_planner_overview_is_not_a_follow_up():
     assert not p.inherited and p.instruments == [] and p.specialists == ["macro", "fx", "rates"]
     assert planner.plan_request("Big picture: what is OCBC saying on credit?", None, WIN).specialists == ["credit"]
     assert planner.plan_request("and what are the risks?", first.to_state(), WIN).inherited
+
+
+def test_benchmark_rates_recognised():
+    p = planner.plan_request("tell me sora and tona forecast to 2027", None, WIN)
+    assert p.specialists == ["rates"] and p.instruments == ["SORA", "TONA"]
+    assert planner.plan_request("OCBC view on SONIA and €STR?", None, WIN).instruments == ["SONIA", "ESTR"]
+
+
+def test_no_evidence_message_names_instruments():
+    from types import SimpleNamespace
+    from app.orchestrator.composer import NO_FORECAST, no_evidence_message
+    plan = SimpleNamespace(info_types=["forecast"], instruments=["SORA", "TONA"])
+    assert no_evidence_message(plan, []) == \
+        "The ingested OCBC research does not contain a verified forecast for SORA or TONA."
+    # "this horizon" only when the instrument exists but not for the requested years
+    assert no_evidence_message(plan, [{"type": "horizon_not_covered", "text": ""}]) == NO_FORECAST

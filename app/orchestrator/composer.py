@@ -10,12 +10,25 @@ import uuid
 from datetime import date
 
 from app.common.freshness import horizon_passed, label as freshness_label
+from app.common.instruments import display_name
 from app.common.schemas import (SPECIALIST_LABELS, Claim, DraftAnswer, EvidenceBundle, SpecialistResponse, TableRow)
 from app.common.timeutil import fmt_date, fmt_dt, fmt_range, now_sgt
 from app.orchestrator import llm
 
 REL_ORDER = {"1M": 1, "3M": 3, "6M": 6, "9M": 9, "12M": 12, "18M": 18, "24M": 24}
 NO_FORECAST = "The ingested OCBC research does not contain a verified forecast for this horizon."
+
+
+def no_evidence_message(plan, limitations: list[dict]) -> str:
+    """Name what is missing. "For this horizon" is used only when the instrument
+    has forecasts but not for the requested years."""
+    if "forecast" not in plan.info_types:
+        return "The ingested OCBC research does not contain relevant information for this request."
+    if any(l["type"] == "horizon_not_covered" for l in limitations) or not plan.instruments:
+        return NO_FORECAST
+    names = [display_name(k) for k in plan.instruments]
+    joined = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " or " + names[-1]
+    return f"The ingested OCBC research does not contain a verified forecast for {joined}."
 
 # Client-facing presentation: lead with an executive summary (house view, key
 # forecast, main drivers, what could change the view), show ONE forecast table,
@@ -297,6 +310,5 @@ def compose(question: str, plan, responses: list[SpecialistResponse], validator,
         "validation": {"passed_after_removal": True, "removed": removed, "checks": report.checks_run,
                        "removed_reasons": list(bad_claims.values())[:5] + list(bad_rows.values())[:5],
                        "model_removed": model_removed},
-        "no_evidence_message": None if has_content else NO_FORECAST if "forecast" in plan.info_types
-        else "The ingested OCBC research does not contain relevant information for this request.",
+        "no_evidence_message": None if has_content else no_evidence_message(plan, limitations),
     }

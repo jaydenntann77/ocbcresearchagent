@@ -8,12 +8,13 @@ import re
 import uuid
 from dataclasses import dataclass, field
 
-from app.common.instruments import COMMODITY_KEYS, find_countries, find_currencies, find_pairs
+from app.common.instruments import COMMODITY_KEYS, find_benchmarks, find_countries, find_currencies, find_pairs
 from app.common.schemas import CorpusConstraints, SpecialistTask
 
 WORDS = {
     "fx": r"\b(fx|currenc\w*|exchange rate|forex|dollar|neer|s\$neer|appreciat\w*|depreciat\w*|pairs?)\b",
-    "rates": r"\b(interest rates?|rates? outlook|policy rates?|yields?|ust|treasur\w*|sgs|sora|sofr|fed\b|fomc|fed funds|ecb|boj|boe|"
+    "rates": r"\b(interest rates?|rates? outlook|policy rates?|yields?|ust|treasur\w*|sgs|sora|sofr|tonar?|sonia|e-?str|"
+             r"corra|honia|saron|fed\b|fomc|fed funds|ecb|boj|boe|"
              r"curve|swaps?|rate (hikes?|cuts?)|hikes?|cuts?|bond yields?|duration|central bank)\b",
     "macro": r"\b(gdp|inflation|growth|econom\w*|macro|recession|fiscal|budget|cpi|pce|pmi|exports?|trade|labou?r|"
              r"unemployment|commodit\w*|oil|brent|policy|esg|sustainab\w*|climate|carbon|"
@@ -81,8 +82,7 @@ def _rate_keys(q: str, currencies: list[str], countries: list[str]) -> list[str]
         keys.append(f"UST{n}Y" if kind.startswith(("ust", "treasur")) else f"SGS{n}Y" if kind == "sgs" else f"SOFRSWAP{n}Y")
     for m in re.finditer(r"\b(ust|sgs)\s?(\d{1,2})y\b", low):
         keys.append(f"{m.group(1).upper()}{m.group(2)}Y")
-    if "sora" in low:
-        keys.append("SORA")
+    keys += find_benchmarks(q)  # SORA, TONA, SONIA, €STR, ...
     generic = re.search(r"interest rates?|rates? outlook|yields?|treasur", low)
     if generic and not keys:
         if "USD" in currencies or "US" in countries or re.search(r"\bus\b|u\.s\.|treasur", low):

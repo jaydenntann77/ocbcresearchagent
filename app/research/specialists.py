@@ -15,7 +15,7 @@ import sqlite3
 from datetime import date
 
 from app.common import config, embedding
-from app.common.instruments import CURRENCY_NAMES, instrument_aliases
+from app.common.instruments import CURRENCY_NAMES, display_name, instrument_aliases
 from app.common.schemas import (SPECIALIST_LABELS, Conflict, Coverage, Evidence, Finding, ForecastValue, SpecialistResponse,
                                 SpecialistTask)
 from app.common.security import evidence_signature
@@ -190,7 +190,7 @@ class Specialist:
             for key in keys:
                 if not any(key in m for m in resp.missing_coverage):
                     resp.coverage.append(Coverage(status="no_relevant_information",
-                                                  detail=f"The ingested OCBC research does not contain a verified forecast for {key}."))
+                                                  detail=f"The ingested OCBC research does not contain a verified forecast for {display_name(key)}."))
             return
         horizon_text = (task.horizon or "").lower()
         years = sorted(task.horizon_years)
@@ -321,6 +321,8 @@ class Specialist:
                          if not x.chunk["text"].startswith(("Instrument |", "FX Forecasts"))]
         cands = []
         seen_chunks = set()
+        # Sentences naming each requested instrument directly, used or not.
+        mentions: dict[str, list[str]] = {k: [] for k in task.instruments}
         for h, hit in hits:
             c = hit.chunk
             if c["chunk_id"] in seen_chunks:
@@ -333,6 +335,9 @@ class Specialist:
                 section_focus = self._mentions(c["section"] or "", terms) if terms else 0
                 if terms and focus == 0 and section_focus == 0:
                     continue
+                for k in task.instruments:
+                    if self._mentions(s, instrument_aliases(k)) and s not in mentions[k]:
+                        mentions[k].append(s)
                 if TECHNICAL_RE.search(s):
                     continue
                 digits = len(NUM_RE.findall(s))
@@ -383,6 +388,23 @@ class Specialist:
             labels = {f.instrument_key: f.instrument_label for f in resp.forecasts}
             what = ", ".join([labels.get(k, k) for k in task.instruments] or task.currencies or task.issuers
                              or task.sectors)
+            if task.instruments and not resp.forecasts:
+                # Say, per instrument, whether it is absent altogether or named
+                # only in descriptions of past market moves ("the SORA OIS curve
+                # traded lower"), which are not forecasts or views.
+                for k in task.instruments:
+                    seen = mentions[k]
+                    if not seen:
+                        detail = (f"No passage mentioning {display_name(k)} was found in the "
+                                  f"{SPECIALIST_LABELS[self.name]} research published in this window.")
+                    else:
+                        example = seen[0] if len(seen[0]) <= 140 else seen[0][:137] + "…"
+                        detail = (f"{display_name(k)} is mentioned in {len(seen)} {SPECIALIST_LABELS[self.name]} "
+                                  f"passage(s) published in this window, "
+                                  f"but only as descriptions of past market moves (e.g. “{example}”), not "
+                                  f"as a forecast or published view.")
+                    resp.coverage.append(Coverage(status="no_relevant_information", detail=detail))
+                return
             detail = (f"The research publishes the {what} forecast shown, but no written commentary explaining it "
                       f"in this window." if resp.forecasts else
                       f"No written commentary on {what} was found in OCBC research published in this window." if what
