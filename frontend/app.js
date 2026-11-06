@@ -255,10 +255,12 @@ function errorCard(msg) {
 // ------------------------------------------------------------------ answer rendering
 const STATUS = {
   complete: ["Complete", "ok"], partial: ["Partial coverage", "warn"], no_evidence: ["No verified evidence", "bad"],
+  not_covered: ["Not covered by the research", "bad"],
   clarify: ["Needs clarification", "info"], info: ["Info", "info"], error: ["Error", "bad"], declined: ["Declined", "warn"],
 };
 const LIMIT_LABEL = {
   horizon_not_covered: ["Horizon not covered", "warn"], no_relevant_information: ["No relevant information", "warn"],
+  subject_not_covered: ["Not covered", "warn"],
   document_inaccessible: ["Document inaccessible", "bad"], extraction_failed: ["Extraction failed", "bad"],
   conflicting_sources: ["Conflicting sources", "warn"], missing_coverage: ["Not published", "warn"],
   note: ["Note", "info"], mixed_dates: ["Mixed dates", "info"], validation: ["Validation", "warn"], model: ["Model", "info"],
@@ -294,7 +296,9 @@ function claimList(answer, items, cls = "") {
 // one instrument per row), the key implication, then supporting research,
 // sources and the audit trail collapsed underneath.
 // Gaps in what was asked lead the summary, so a missing forecast is never buried.
-const LEAD_LIMITS = new Set(["horizon_not_covered"]);
+const LEAD_LIMITS = new Set(["horizon_not_covered", "subject_not_covered"]);
+// Gaps in what was asked lead the summary; l.lead marks a per-answer one (no write-up on an instrument asked about).
+const leads = (l) => LEAD_LIMITS.has(l.type) || l.lead === true;
 // Executive summary paragraphs: view and path together, then why, risks, conclusion.
 const PART_PARA = { view: 0, path: 0, why: 1, risks: 2, conclusion: 3 };
 function summaryParagraphs(direct) {
@@ -308,7 +312,7 @@ function summaryParagraphs(direct) {
   }
   return paras;
 }
-const MATERIAL_LIMITS = new Set(["horizon_not_covered", "no_relevant_information", "document_inaccessible",
+const MATERIAL_LIMITS = new Set(["horizon_not_covered", "subject_not_covered", "no_relevant_information", "document_inaccessible",
   "extraction_failed", "conflicting_sources", "missing_coverage", "error", "horizon_passed"]);
 
 function tableGroups(rows) {
@@ -394,7 +398,7 @@ function renderAnswer(a) {
     body.append(el("div", { class: `notice ${n.kind}` }, svg(n.kind === "web" ? "globe" : "shield"), el("div", { text: n.text })));
   }
   if (a.message) body.append(el("p", { class: "empty-answer", text: a.message }));
-  const gaps = (a.limitations || []).filter((l) => LEAD_LIMITS.has(l.type)).map((l) => l.text);
+  const gaps = (a.limitations || []).filter(leads).map((l) => l.text);
   if (a.direct && a.direct.length) {
     body.append(el("div", { class: "section direct" }, el("h3", { text: "Executive summary" }),
       summaryParagraphs(a.direct).map((para, i) => el("p", { class: "lead" }, i === 0 ? gaps.map((g) => g + " ") : null,
@@ -413,7 +417,7 @@ function renderAnswer(a) {
         el("span", { class: `badge ${c.resolution === "unresolved" ? "bad" : "info"}`, text: c.resolution === "unresolved" ? "Unresolved" : "Revision" }),
         el("span", { text: c.text }))))));
   }
-  const material = (a.limitations || []).filter((l) => MATERIAL_LIMITS.has(l.type) && !(a.direct.length && LEAD_LIMITS.has(l.type)));
+  const material = (a.limitations || []).filter((l) => MATERIAL_LIMITS.has(l.type) && !(a.direct.length && leads(l)));
   const minor = (a.limitations || []).filter((l) => !MATERIAL_LIMITS.has(l.type));
   if (material.length) {
     body.append(el("div", { class: "section please-note" }, el("h3", { text: "Please note" }),
@@ -504,7 +508,7 @@ function answerMarkdown(a) {
   // Client-ready text: summary, table, implication, material notes, sources.
   const out = [];
   for (const n of a.notices || []) out.push(`Note: ${n.text}`, "");
-  const gaps = a.direct.length ? a.limitations.filter((l) => LEAD_LIMITS.has(l.type)).map((l) => l.text) : [];
+  const gaps = a.direct.length ? a.limitations.filter(leads).map((l) => l.text) : [];
   summaryParagraphs(a.direct).forEach((para, i) =>
     out.push([...(i === 0 ? gaps : []), ...para.map((c) => `${c.text} ${refs(a, c.citations)}`.trim())].join(" "), ""));
   if (!a.direct.length && a.no_evidence_message) out.push(a.no_evidence_message, "");

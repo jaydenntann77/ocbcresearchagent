@@ -280,3 +280,35 @@ def test_every_asked_instrument_gets_its_forecast_in_the_summary():
     text = " ".join(c["text"] for c in a["direct"])
     assert "SORA at 1.40" in text and "JPY TONAR rising from 1.48 in 4Q26 to 1.98 by 4Q27" in text
     assert {t["instrument"]: t["asked"] for t in a["table"]}["10Y SGD OIS"] is False
+
+
+def test_subjects_name_what_the_question_is_about():
+    from app.orchestrator.subjects import find_subjects
+    names = lambda q: [s["name"] for s in find_subjects(q, planner.plan_request(q, None, WIN))]
+    assert names("What is OCBC's bitcoin price forecast?") == ["bitcoin"]
+    assert names("What is OCBC's target price for DBS shares?") == ["DBS"]
+    assert names("What is OCBC's view on the Brazilian real?") == ["BRL"]  # recognised currency
+    assert names("Why does OCBC expect TONA to rise?") == ["TONA"]
+    assert names("Give me OCBC's forecast for USD/SGD through 2027, together with the supporting rationale.") == ["USD/SGD"]
+    assert names("give me an overview of OCBC research views") == []
+
+
+def test_subject_coverage_uses_research_wording_and_search_terms():
+    from app.orchestrator.subjects import find_subjects, is_covered
+    q = "Singdollar outlook?"
+    s = find_subjects(q, planner.plan_request(q, None, WIN), ["SGD", "S$NEER", "outlook"])
+    assert is_covered(s[0], ["We expect the SGD to stay firm."])
+    btc = find_subjects("bitcoin forecast?", planner.plan_request("bitcoin forecast?", None, WIN))[0]
+    assert not is_covered(btc, ["The USD should stay supported into 1H27."])
+
+
+def test_subjects_come_from_the_users_words_not_the_rewrite():
+    # A replan with search terms ("BTC/USD") must not turn a bitcoin question into a USD one,
+    # and "SGD interest rates" is about SGD rates, not each benchmark the planner expands it to.
+    from app.orchestrator.subjects import find_subjects
+    q = "What is OCBC's bitcoin price forecast?"
+    p = planner.plan_request(f"{q} (bitcoin, BTC/USD)", None, WIN)
+    p.question = q
+    assert "USD" in p.currencies and [s["name"] for s in find_subjects(q, p)] == ["bitcoin"]
+    q = "Summarize OCBC's published view on SGD interest rates."
+    assert [s["name"] for s in find_subjects(q, planner.plan_request(q, None, WIN))] == ["SGD"]

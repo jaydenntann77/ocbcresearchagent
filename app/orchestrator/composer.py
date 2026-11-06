@@ -14,6 +14,7 @@ from app.common.instruments import display_name, instrument_aliases
 from app.common.schemas import (SPECIALIST_LABELS, Claim, DraftAnswer, EvidenceBundle, SpecialistResponse, TableRow)
 from app.common.timeutil import fmt_date, fmt_dt, fmt_range, now_sgt
 from app.orchestrator import llm
+from app.orchestrator.subjects import find_subjects, is_covered, is_specific, join_names
 
 REL_ORDER = {"1M": 1, "3M": 3, "6M": 6, "9M": 9, "12M": 12, "18M": 18, "24M": 24}
 NO_FORECAST = "The ingested OCBC research does not contain a verified forecast for this horizon."
@@ -196,7 +197,7 @@ def build_draft(question: str, responses: list[SpecialistResponse], focus: list[
 
 
 def compose(question: str, plan, responses: list[SpecialistResponse], validator, notices: list[dict],
-            corpus: dict, use_model: bool = True) -> dict:
+            corpus: dict, use_model: bool = True, search_terms: list[str] | None = None) -> dict:
     draft, bundle, origin, asked_paths = build_draft(question, responses, getattr(plan, "instruments", None))
     model_note = None
     model_removed = []
@@ -325,10 +326,43 @@ def compose(question: str, plan, responses: list[SpecialistResponse], validator,
         limitations.append({"type": "mixed_dates", "text": f"This answer combines reports published on different "
                                                           f"dates ({fmt_range(date.fromisoformat(pub_dates[0]), date.fromisoformat(pub_dates[-1]))}); "
                                                           f"check each source's date.", "specialist": None})
+    # Be upfront about what the research does not cover. Retrieval always finds
+    # the nearest passages, so check the question's subjects against them.
+    window = corpus.get("window") or {}
+    subjects = [] if getattr(plan, "inherited", False) else find_subjects(question, plan, search_terms)
+    # Judge what the answer shows, not everything retrieved: a passing news line
+    # ("new crypto licensing regimes") is not a view on bitcoin.
+    texts = [c["text"] for sec in sections.values() for c in sec] + [t["instrument"] for t in table]
+    missing = [s for s in subjects if not is_covered(s, texts)]
+    in_window = f"OCBC research published in this window ({window['label']})" if window.get("label") \
+        else "The OCBC research available"
+    not_covered = None
+    if subjects and len(missing) == len(subjects):
+        not_covered = (f"{in_window} does not cover {join_names([s['name'] for s in missing])}, so there is no "
+                       f"house view or forecast on it to report. Nothing has been filled in from outside the research.")
+        table, sources, conflicts = [], [], []
+        sections = {k: [] for k in sections}
+        limitations = [l for l in limitations if l["type"] in ("document_inaccessible",)]
+    else:
+        # Name a missing recognised entity (BRL, TONA) always; a missing unrecognised
+        # word only when no other such word was covered ("ESG and sustainability"
+        # answered on sustainability is not an ESG gap).
+        topic_hit = any(not s.get("known") and s not in missing for s in subjects)
+        gone = [s["name"] for s in missing if s.get("known") or (is_specific(s) and not topic_hit)]
+        if gone:
+            limitations.insert(0, {"type": "subject_not_covered", "lead": True, "specialist": None, "text": (
+                f"{in_window} does not cover {join_names(gone)}; the answer below covers only what the research "
+                f"does address.")})
+    # A "why" question about an instrument whose forecast has no write-up: say so first.
+    if {"rationale", "risks"} & set(getattr(plan, "info_types", [])):
+        asked = [display_name(k) for k in getattr(plan, "instruments", [])]
+        for l in limitations:
+            if l["type"] == "no_relevant_information" and any(n in l["text"] for n in asked):
+                l["lead"] = True
     has_content = bool(table or any(sections.values()))
     blocking = [l for l in limitations if l["type"] not in ("note", "model", "mixed_dates", "limitation")]
-    status = "complete" if has_content and not blocking else "partial" if has_content else "no_evidence"
-    window = corpus.get("window") or {}
+    status = ("not_covered" if not_covered else "complete" if has_content and not blocking
+              else "partial" if has_content else "no_evidence")
     return {
         "answer_id": f"A-{uuid.uuid4().hex[:10]}",
         "question": question,
@@ -348,5 +382,5 @@ def compose(question: str, plan, responses: list[SpecialistResponse], validator,
         "validation": {"passed_after_removal": True, "removed": removed, "checks": report.checks_run,
                        "removed_reasons": list(bad_claims.values())[:5] + list(bad_rows.values())[:5],
                        "model_removed": model_removed},
-        "no_evidence_message": None if has_content else no_evidence_message(plan, limitations),
+        "no_evidence_message": not_covered or (None if has_content else no_evidence_message(plan, limitations)),
     }

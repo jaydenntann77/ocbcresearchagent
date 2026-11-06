@@ -14,6 +14,7 @@ CURRENCY_NAMES = {
     "euro": "EUR", "sterling": "GBP", "pound": "GBP", "yuan": "CNY", "renminbi": "CNY", "rmb": "CNY",
     "ringgit": "MYR", "rupiah": "IDR", "baht": "THB", "won": "KRW", "rupee": "INR", "aussie": "AUD",
     "kiwi": "NZD", "loonie": "CAD", "swiss franc": "CHF", "peso": "PHP", "dong": "VND",
+    "singdollar": "SGD", "brazilian real": "BRL", "krone": "NOK", "krona": "SEK", "rand": "ZAR",
 }
 
 _PAIR_RE = re.compile(r"\b([A-Z]{3})\s?[-/]?\s?([A-Z]{3})\b")

@@ -37,6 +37,7 @@ from app.common.security import require_token  # noqa: E402
 from app.common.timeutil import fmt_dt, fmt_range, now_sgt  # noqa: E402
 from app.orchestrator import composer, conversations, guardrails, llm, planner  # noqa: E402
 from app.orchestrator.clients import ResearchClient, ServiceError, ValidatorClient  # noqa: E402
+from app.orchestrator.subjects import find_subjects, is_specific, join_names  # noqa: E402
 
 app = FastAPI(title="Conversation API", docs_url=None, redoc_url=None, openapi_url=None)
 auth = require_token(config.TOKEN_GATEWAY_ORCH)
@@ -107,6 +108,13 @@ def answer_question(question: str, state: dict, emit) -> tuple[dict, dict]:
                                     bool(w.get("expanded")))
         plan.question = q
     if not plan.specialists:
+        named = [s["name"] for s in find_subjects(q, plan) if is_specific(s) or not s.get("known")]
+        if named and not (checks["web"] or checks["advice"]):
+            # The question names something ("bitcoin") that no desk covers: say so plainly.
+            span = f"published in this window ({w['label']})" if w.get("label") else "available"
+            msg = (f"OCBC research {span} does not cover {join_names(named)}, so there is no house view or "
+                   f"forecast on it to report. Nothing has been filled in from outside the research.")
+            return _simple(question, "not_covered", msg, notices, corpus), state
         msg = ("I couldn't identify an instrument, market or sector to research in that request. "
                "Try naming a currency pair, rate, country, issuer or sector.")
         if checks["web"] or checks["advice"]:
@@ -145,7 +153,8 @@ def answer_question(question: str, state: dict, emit) -> tuple[dict, dict]:
                                                 "(SGT)."})
     emit("Validating evidence and citations")
     try:
-        answer = composer.compose(question, plan, responses, validator, notices, corpus, use_model=use_model)
+        answer = composer.compose(question, plan, responses, validator, notices, corpus, use_model=use_model,
+                                  search_terms=terms)
     except ServiceError as exc:
         return _simple(question, "error", f"The evidence validator is unavailable ({exc}), so the answer was withheld "
                                           f"rather than shown unvalidated. Please retry shortly.", notices, corpus), state

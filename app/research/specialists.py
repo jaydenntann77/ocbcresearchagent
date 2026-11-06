@@ -389,8 +389,8 @@ class Specialist:
             resp.findings.append(Finding(finding_id=f"{self.name}-F{n}", kind=kind, statement=s,
                                          statement_mode="verbatim", evidence_ids=[ev.evidence_id],
                                          instruments=task.instruments))
-        if picked and len(task.instruments) > 1:
-            # Commentary found for some instruments asked about but not others
+        if picked and task.instruments:
+            # Commentary found, but not on (some of) the instruments asked about
             # ("SORA and TONA": SORA write-ups only) - say so per instrument.
             said = " ".join(p[2] for p in picked)
             for k in task.instruments:

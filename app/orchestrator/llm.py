@@ -52,6 +52,10 @@ Rules:
 - Keep publication date, forecast-update date and forecast horizon distinct. A newer document does not make an
   older forecast revised unless it states a changed forecast. Never average conflicting views.
 - Translate technical research language into clear client language while keeping its meaning.
+- If the evidence does not address something the question asks about (an instrument, market, company, topic or
+  horizon), write nothing about it: never substitute a related market (e.g. USD commentary for a bitcoin or
+  Brazilian real question), never answer from general knowledge, and never imply the evidence covers it. The
+  app states such gaps to the reader separately, in fixed wording, before your summary.
 - Never mention retrieval, specialists, evidence IDs, validation or what was not found. No headings or bullets.
 - Every sentence must list the evidence_ids that support it. If the evidence does not support a statement,
   leave it out."""
