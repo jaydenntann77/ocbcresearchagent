@@ -336,11 +336,14 @@ function instName(inst, unit) {
 }
 
 function tableTitle(rows) {
-  const names = [...new Set(rows.map((r) => instName(r.instrument, r.unit)))];
+  // Name what was asked about; related tenors shown alongside are mentioned, not listed.
+  const asked = rows.filter((r) => r.asked !== false);
+  const names = [...new Set((asked.length ? asked : rows).map((r) => instName(r.instrument, r.unit)))];
   const units = [...new Set(rows.map((r) => r.unit).filter(Boolean))];
   const list = names.length > 4 ? names.slice(0, 4).join(", ") + " and others"
     : names.length > 1 ? names.slice(0, -1).join(", ") + " and " + names[names.length - 1] : names[0];
-  return `${list} forecast${units.length === 1 ? ` (${units[0]})` : ""}`;
+  const related = asked.length && asked.length < rows.length ? ", with related tenors" : "";
+  return `${list} forecast${related}${units.length === 1 ? ` (${units[0]})` : ""}`;
 }
 
 function asOfLines(rows) {

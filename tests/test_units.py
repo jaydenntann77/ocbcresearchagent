@@ -220,3 +220,63 @@ def test_planner_reads_tenor_ois():
     p = planner.plan_request("What is OCBC's forecast for 10Y SGD OIS?", None, WIN)
     assert p.lead == "rates" and "SORAOIS10Y" in p.instruments
     assert "SOFROIS1Y" in planner.plan_request("Where does OCBC see 1Y SOFR OIS?", None, WIN).instruments
+
+
+def _rates_response():
+    """A Rates answer with SORA commentary, a SORA + SGD OIS + TONA table and no TONA commentary."""
+    from app.common.schemas import Evidence, Finding, ForecastValue, SpecialistResponse
+    ev = [Evidence(evidence_id=e, doc_id="d", title="Research Monitor", publication_date="2026-11-02",
+                   date_confidence="high", source_url="manual:x", pdf_page=11, excerpt=x)
+          for e, x in [("E1", "Rates table"), ("E2", "We expect SORA to continue to grind higher in 2027.")]]
+    q = ["4Q26", "1Q27", "4Q27"]
+    rows = [("SORA", "SORA", ["1.40", "1.45", "1.60"]), ("10Y SGD OIS", "SORAOIS10Y", ["2.60", "2.75", "2.80"]),
+            ("1Y SGD OIS", "SORAOIS1Y", ["1.80", "1.85", "1.85"]), ("JPY TONAR", "TONA", ["1.48", "1.73", "1.98"])]
+    fc = [ForecastValue(record_id=f"{k}{h}", instrument_label=lab, instrument_key=k, horizon_label=h,
+                        horizon_kind="absolute", horizon_end=f"20{h[-2:]}-{3 * int(h[0]):02d}-28", value=v,
+                        evidence_id="E1")
+          for lab, k, vals in rows for h, v in zip(q, vals)]
+    return SpecialistResponse(task_id="t", specialist="rates", status="ok", evidence=ev, forecasts=fc, findings=[
+        Finding(finding_id="F1", kind="rationale", statement=ev[1].excerpt, statement_mode="verbatim",
+                evidence_ids=["E2"])])
+
+
+def test_table_lists_asked_instruments_first_then_tenors_short_to_long():
+    from app.orchestrator.composer import build_draft
+    draft, _, _, paths = build_draft("SORA and TONA forecast?", [_rates_response()], ["SORA", "TONA"])
+    order = list(dict.fromkeys(r.instrument_key for r in draft.table_rows))
+    assert order == ["SORA", "SORAOIS1Y", "SORAOIS10Y", "TONA"]
+    assert set(paths) == {"SORA", "TONA"} and "JPY TONAR rising from 1.48" in paths["TONA"].text
+
+
+def test_every_asked_instrument_gets_its_forecast_in_the_summary():
+    # The model's TONA sentence fails validation; the fixed-wording TONA path fills in.
+    from app.common.schemas import Claim
+    from app.orchestrator import composer
+
+    class Plan:
+        instruments = ["SORA", "TONA"]
+
+    class Report:
+        def __init__(self, claims):
+            self.claims = [type("V", (), {"ok": not (c.claim_id.startswith("M") and "TONAR" in c.text), "reasons": ["overlap"], "claim_id": c.claim_id})()
+                           for c in claims]
+            self.rows, self.evidence_problems, self.checks_run = [], set(), []
+
+    class Validator:
+        def validate(self, draft, bundle):
+            return Report(draft.claims)
+
+    model = [{"section": "direct", "part": "path", "evidence_ids": ["E1"],
+              "text": "Our house forecast has SORA at 1.40 for 4Q26, rising to 1.60 by 4Q27."},
+             {"section": "direct", "part": "path", "evidence_ids": ["E1"],
+              "text": "For Japan, our house forecast has JPY TONAR at 1.48 for 4Q26, rising to 1.98 by 4Q27."}]
+    orig = (composer.llm.status, composer.llm.synthesize)
+    composer.llm.status = lambda: {"available": True}
+    composer.llm.synthesize = lambda *a: model
+    try:
+        a = composer.compose("what is the SORA and TONA forecast?", Plan(), [_rates_response()], Validator(), [], {})
+    finally:
+        composer.llm.status, composer.llm.synthesize = orig
+    text = " ".join(c["text"] for c in a["direct"])
+    assert "SORA at 1.40" in text and "JPY TONAR rising from 1.48 in 4Q26 to 1.98 by 4Q27" in text
+    assert {t["instrument"]: t["asked"] for t in a["table"]}["10Y SGD OIS"] is False

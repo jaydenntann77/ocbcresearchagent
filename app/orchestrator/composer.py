@@ -10,7 +10,7 @@ import uuid
 from datetime import date
 
 from app.common.freshness import horizon_passed, label as freshness_label
-from app.common.instruments import display_name
+from app.common.instruments import display_name, instrument_aliases
 from app.common.schemas import (SPECIALIST_LABELS, Claim, DraftAnswer, EvidenceBundle, SpecialistResponse, TableRow)
 from app.common.timeutil import fmt_date, fmt_dt, fmt_range, now_sgt
 from app.orchestrator import llm
@@ -80,6 +80,25 @@ def _path_sentence(fvs: list) -> str:
 
 
 PART_ORDER = {"view": 0, "path": 1, "why": 2, "risks": 3, "conclusion": 4}
+TENOR_KEY_RE = re.compile(r"^([A-Z]+?)OIS(\d{1,2})([MY])$")
+
+
+def _inst_order(key: str, focus: list[str]) -> tuple:
+    """Table order: the instruments asked about first, in the order asked, each
+    followed by its OIS tenors from short to long (3M, 6M, 1Y ... 20Y)."""
+    m = TENOR_KEY_RE.match(key)
+    base, months = (m.group(1), int(m.group(2)) * (12 if m.group(3) == "Y" else 1)) if m else (key, -1)
+    group = focus.index(base) if base in focus else len(focus)
+    return (group, base if group == len(focus) else "", months, key)
+
+
+def _mentions_forecast(key: str, claims: list[Claim], rows: list[TableRow]) -> bool:
+    """True if some sentence names the instrument together with one of its forecast values."""
+    vals = {r.value for r in rows if r.instrument_key == key}
+    names = set(instrument_aliases(key)) | {display_name(key)} | {r.instrument_label for r in rows
+                                                                   if r.instrument_key == key}
+    return any(any(v in c.text for v in vals) and any(re.search(rf"(?<!\w){re.escape(n)}(?!\w)", c.text, re.I)
+                                                      for n in names) for c in claims)
 
 
 def _summary(claims: list[Claim], path_claims: list[Claim]) -> list[Claim]:
@@ -102,7 +121,10 @@ def _summary(claims: list[Claim], path_claims: list[Claim]) -> list[Claim]:
     return tagged[:SUMMARY_MAX]
 
 
-def build_draft(question: str, responses: list[SpecialistResponse]):
+def build_draft(question: str, responses: list[SpecialistResponse], focus: list[str] | None = None):
+    """Returns (draft, bundle, origin, paths): paths maps each instrument asked
+    about to its fixed-wording forecast sentence."""
+    focus = list(focus or [])
     evidence = {}
     forecasts = []
     for r in responses:
@@ -115,7 +137,7 @@ def build_draft(question: str, responses: list[SpecialistResponse]):
         - {evidence[f.evidence_id].table_id for f in shown if f.evidence_id in evidence}
     forecasts = shown
     rows: list[TableRow] = []
-    for fv in sorted(forecasts, key=lambda f: (f.instrument_key,) + _row_sort(f)):
+    for fv in sorted(forecasts, key=lambda f: _inst_order(f.instrument_key, focus) + _row_sort(f)):
         ev = evidence.get(fv.evidence_id)
         rows.append(TableRow(row_id=f"R{len(rows) + 1}", instrument_label=fv.instrument_label,
                              instrument_key=fv.instrument_key, horizon_label=fv.horizon_label, value=fv.value,
@@ -138,10 +160,18 @@ def build_draft(question: str, responses: list[SpecialistResponse]):
     for fv in forecasts:
         by_table.setdefault((fv.instrument_key, fv.evidence_id, fv.horizon_kind), []).append(fv)
     paths = []
-    for (key, ev_id, kind), fvs in by_table.items():
+    newest: dict[str, tuple] = {}  # instrument -> (publication date, path claim) of its latest table
+    for (key, ev_id, kind), fvs in sorted(by_table.items(), key=lambda kv: _inst_order(kv[0][0], focus)):
         fvs.sort(key=_row_sort)
-        paths.append(Claim(claim_id=f"P{len(paths) + 1}", section="direct", text=_path_sentence(fvs),
-                           evidence_ids=[ev_id], mode="template"))
+        claim = Claim(claim_id=f"P{len(paths) + 1}", section="direct", text=_path_sentence(fvs),
+                      evidence_ids=[ev_id], mode="template")
+        paths.append(claim)
+        pub = evidence[ev_id].publication_date if ev_id in evidence else ""
+        if key not in newest or (pub or "") > (newest[key][0] or ""):
+            newest[key] = (pub, claim)
+    asked_paths = {k: newest[k][1] for k in focus if k in newest}
+    if asked_paths:  # summarise the instruments asked about, not every related tenor in the table
+        paths = list(asked_paths.values())
     for r in responses:
         for f in r.findings:
             section = {"rationale": "rationale", "risk": "risks", "scenario": "scenarios",
@@ -162,12 +192,12 @@ def build_draft(question: str, responses: list[SpecialistResponse]):
     draft = DraftAnswer(question=question, claims=claims, table_rows=rows)
     all_fc = [f for r in responses for f in r.forecasts]
     bundle = EvidenceBundle(evidence=list(evidence.values()), forecasts=all_fc)
-    return draft, bundle, origin
+    return draft, bundle, origin, asked_paths
 
 
 def compose(question: str, plan, responses: list[SpecialistResponse], validator, notices: list[dict],
             corpus: dict, use_model: bool = True) -> dict:
-    draft, bundle, origin = build_draft(question, responses)
+    draft, bundle, origin, asked_paths = build_draft(question, responses, getattr(plan, "instruments", None))
     model_note = None
     model_removed = []
     mode = "extractive"
@@ -191,10 +221,16 @@ def compose(question: str, plan, responses: list[SpecialistResponse], validator,
                 rest = [c.model_copy(update={"section": origin[c.claim_id]}) if c.claim_id in origin else c
                         for c in draft.claims]
                 summary = sorted((c for c in ok if c.section == "direct"), key=lambda c: PART_ORDER.get(c.part, 0))
-                # The key forecast must be in the summary: if every model sentence
-                # stating it failed validation, lead with the fixed-wording path.
+                # Every instrument asked about must have its forecast in the summary:
+                # where the model's sentence for one failed validation, use the
+                # fixed-wording path for that instrument.
                 values = {r.value for r in draft.table_rows}
-                if values and not any(v in c.text for c in summary for v in values):
+                if asked_paths:
+                    fill = [c.model_copy(update={"claim_id": f"T{n + 1}", "part": "path"})
+                            for n, (k, c) in enumerate(asked_paths.items())
+                            if not _mentions_forecast(k, summary, draft.table_rows)]
+                    summary = sorted(summary + fill, key=lambda c: PART_ORDER.get(c.part, 0))
+                elif values and not any(v in c.text for c in summary for v in values):
                     summary = [c for c in draft.claims if c.section == "direct" and c.mode == "template"] + summary
                 draft.claims = summary + [c for c in ok if c.section != "direct"] \
                     + [c for c in rest if c.section != "direct"]
@@ -241,6 +277,8 @@ def compose(question: str, plan, responses: list[SpecialistResponse], validator,
             "publication_label": _d(r.publication_date), "data_date": fv.data_date,
             "horizon_passed": r.horizon_passed, "citations": cite([r.evidence_id]),
             "table_title": fv.table_title, "doc_title": ev.title if ev else None,
+            # False for related tenors shown alongside what was asked (SORA -> SGD OIS curve).
+            "asked": not asked_paths or r.instrument_key in asked_paths,
         })
     for c in claims:
         if c.section in ("rationale", "risks", "scenarios", "commentary"):

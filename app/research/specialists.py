@@ -389,6 +389,15 @@ class Specialist:
             resp.findings.append(Finding(finding_id=f"{self.name}-F{n}", kind=kind, statement=s,
                                          statement_mode="verbatim", evidence_ids=[ev.evidence_id],
                                          instruments=task.instruments))
+        if picked and len(task.instruments) > 1:
+            # Commentary found for some instruments asked about but not others
+            # ("SORA and TONA": SORA write-ups only) - say so per instrument.
+            said = " ".join(p[2] for p in picked)
+            for k in task.instruments:
+                if any(f.instrument_key == k for f in resp.forecasts) and not self._mentions(said, instrument_aliases(k)):
+                    resp.coverage.append(Coverage(status="no_relevant_information", detail=(
+                        f"The research publishes the {display_name(k)} forecast shown, but no written commentary "
+                        f"explaining it in this window.")))
         if not picked:
             labels = {f.instrument_key: f.instrument_label for f in resp.forecasts}
             what = ", ".join([labels.get(k, k) for k in task.instruments] or task.currencies or task.issuers
