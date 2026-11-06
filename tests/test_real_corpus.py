@@ -47,7 +47,10 @@ def test_window_and_counts(conn):
     assert len(docs) >= 20
     for d in docs:
         assert d["dev_fixture"] == 0
-        assert d["source_url"].startswith("https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/")
+        if d["source_url"].startswith("manual:"):  # added with --add-pdf; must say so
+            assert "added manually" in (d["status_detail"] or "")
+        else:
+            assert d["source_url"].startswith("https://www.ocbc.com/iwov-resources/sg/ocbc/gbc/pdf/")
 
 
 def test_dates_follow_resolution_rule(conn):

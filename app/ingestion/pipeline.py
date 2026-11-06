@@ -297,6 +297,53 @@ def rekey_forecasts(conn) -> int:
     return changed
 
 
+MANUAL_PREFIX = "manual:"
+
+
+def add_manual_pdf(path, title: str, published: date, category: str | None = None, section: str | None = None,
+                   subcategory: str | None = None, ocr: bool = False, log=print) -> str:
+    """Add a PDF that is not on the OCBC website (e.g. not yet published).
+    It goes through the same validation, date rules and parsing as crawled
+    documents. The date given here stands in for the website listing date,
+    and the source is recorded as manual:<hash> instead of an ocbc.com link.
+    ocr=True marks every page as OCR-derived, so answers carry the
+    verify-against-the-page-image flag."""
+    from pathlib import Path
+    data = Path(path).read_bytes()
+    sha = hashlib.sha256(data).hexdigest()
+    url = f"{MANUAL_PREFIX}{sha[:12]}"
+    conn = store.connect(config.META_DB)
+    try:
+        window = store.get_state(conn, "active_window")
+        if not window:
+            raise RuntimeError("no active window yet; run a normal ingestion first")
+        start, end = date.fromisoformat(window["start"]), date.fromisoformat(window["end"])
+        item = ListingItem(url=url, title=title, listing_date=published.isoformat(),
+                           listing_date_text=published.isoformat(), category=category, section=section,
+                           subcategory=subcategory, found_on="added manually")
+        run = Run(conn, now_sgt().strftime("manual-%Y%m%d-%H%M%S"), log)
+        state = ingest_pdf_bytes(conn, data, item, (start, end), run)
+        doc_id = "ocbc-" + sha[:12]
+        if state == "indexed":
+            with conn:
+                conn.execute("UPDATE documents SET status_detail=?, date_basis=? WHERE doc_id=?",
+                             (f"added manually {now_sgt().date().isoformat()}; not published on ocbc.com",
+                              "date given when the document was added manually", doc_id))
+                if ocr:
+                    conn.execute("UPDATE pages SET ocr=1 WHERE doc_id=?", (doc_id,))
+                    conn.execute("UPDATE chunks SET ocr=1 WHERE doc_id=?", (doc_id,))
+                    n = conn.execute("SELECT page_count FROM documents WHERE doc_id=?", (doc_id,)).fetchone()[0]
+                    conn.execute("UPDATE documents SET ocr_pages=? WHERE doc_id=?",
+                                 (json.dumps(list(range(1, n + 1))), doc_id))
+            indexer.build_collections(conn, window["start"], window["end"],
+                                      include_fixtures=config.DEV_FIXTURE_CORPUS, log=log)
+        detail = conn.execute("SELECT detail FROM run_items WHERE run_id=? AND url=?", (run.run_id, url)).fetchone()
+        log(f"{title}: {state} ({detail[0] if detail else ''})")
+        return state
+    finally:
+        conn.close()
+
+
 def reparse_documents(conn, log=print) -> int:
     """Re-extract every indexed document from its stored PDF, so parser
     changes apply to documents ingested earlier. Dates and listing metadata

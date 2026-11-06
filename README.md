@@ -46,6 +46,12 @@ instrument rules. Add `--reparse` to also re-read every stored PDF, which is nee
 parser. Both print any table shaped like a forecast that produced no forecast numbers; the ingestion report
 lists them too, along with any core instrument (USD/SGD, Fed funds, SORA, SGS…) that has no forecast.
 
+To add a PDF that is not on the OCBC website (for example, not yet published), run
+`python -m app.ingestion.run --add-pdf FILE --title "..." --date YYYY-MM-DD [--category ... --section ... --ocr]`.
+It goes through the same validation, date rules and parsing as crawled reports. Answers show it as
+"not published on ocbc.com — added manually" instead of linking to the website; `--ocr` flags every page as
+OCR-derived. Check that you're allowed to share the document's content before adding it.
+
 ```bash
 python run.py
 ```

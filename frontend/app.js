@@ -542,10 +542,13 @@ async function openSource(answer, n) {
   try { meta = await api(`/api/docs/${encodeURIComponent(s.doc_id)}`); }
   catch (e) { body.append(el("div", { class: "notice error" }, svg("alert"), el("div", { text: `Document details unavailable (${e.message}).` }))); }
   const pdfUrl = `/api/docs/${encodeURIComponent(s.doc_id)}/pdf#page=${s.pdf_page}`;
+  // Documents added by hand (not on ocbc.com) carry a "manual:" source instead of a link.
+  const online = /^https:\/\//.test(s.url || "");
+  const where = online ? s.url : "not published online (added manually)";
   body.append(el("div", { class: "drawer-actions" },
     el("a", { class: "btn btn-primary", href: pdfUrl, target: "_blank", rel: "noopener" }, svg("doc"), `Open PDF at page ${s.pdf_page}`),
-    el("a", { class: "btn", href: s.url, target: "_blank", rel: "noopener noreferrer" }, svg("ext"), "Original on ocbc.com"),
-    el("button", { class: "btn btn-ghost", type: "button", onclick: () => copyText(`${s.title} — published ${s.publication_label}, PDF p.${s.pdf_page} — ${s.url}\n"${s.excerpt}"`, "Citation copied") }, svg("copy"), "Copy citation")));
+    online ? el("a", { class: "btn", href: s.url, target: "_blank", rel: "noopener noreferrer" }, svg("ext"), "Original on ocbc.com") : null,
+    el("button", { class: "btn btn-ghost", type: "button", onclick: () => copyText(`${s.title} — published ${s.publication_label}, PDF p.${s.pdf_page} — ${where}\n"${s.excerpt}"`, "Citation copied") }, svg("copy"), "Copy citation")));
   const kv = el("dl", { class: "kv" });
   const add = (k, v) => { if (v !== null && v !== undefined && v !== "") kv.append(el("dt", { text: k }), el("dd", {}, v)); };
   add("Publication date", `${s.publication_label} (${meta ? meta.date_basis : "—"}; confidence ${s.date_confidence})`);
@@ -561,7 +564,8 @@ async function openSource(answer, n) {
   add("Section", s.section);
   add("Document ID", s.doc_id);
   if (meta) add("Content hash", meta.sha256.slice(0, 16) + "…");
-  add("Source URL", el("a", { href: s.url, target: "_blank", rel: "noopener noreferrer", text: s.url }));
+  add("Source URL", online ? el("a", { href: s.url, target: "_blank", rel: "noopener noreferrer", text: s.url })
+    : "Not published on ocbc.com — added manually");
   body.append(kv);
   if (s.ocr) body.append(el("div", { class: "flag", text: "This excerpt was extracted by OCR from an image-only page — verify against the page image." }));
   if (meta && meta.date_flags && meta.date_flags.length) meta.date_flags.forEach((f) => body.append(el("div", { class: "flag", text: f })));

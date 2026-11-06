@@ -214,3 +214,9 @@ def test_untitled_table_of_future_periods_is_a_forecast():
     # Past periods relative to the document date are not treated as a forecast by shape alone.
     old = _forecast_page([(300, None, "", ["1Q26", "2Q26", "3Q26"], [("GDP", ["1.0", "1.2", "1.4"])])])
     assert all(t.kind != "forecast" for p in extract(old).pages for t in p.tables)
+
+
+def test_planner_reads_tenor_ois():
+    p = planner.plan_request("What is OCBC's forecast for 10Y SGD OIS?", None, WIN)
+    assert p.lead == "rates" and "SORAOIS10Y" in p.instruments
+    assert "SOFROIS1Y" in planner.plan_request("Where does OCBC see 1Y SOFR OIS?", None, WIN).instruments
