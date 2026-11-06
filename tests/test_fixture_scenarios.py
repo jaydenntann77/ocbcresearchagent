@@ -87,7 +87,7 @@ def test_revision_latest_applies_with_basis(run):
     assert {f["horizon_label"]: f["value"] for f in eur["forecasts"]} == {
         "Dec-26": "1.14", "Mar-27": "1.13", "Jun-27": "1.13", "Dec-27": "1.15"}
     assert eur["conflicts"] and all(c["resolution"] == "latest_publication_applies" for c in eur["conflicts"])
-    assert "15 October 2026" in eur["conflicts"][0]["description"]  # older source retained in the explanation
+    assert "15 Oct 2026" in eur["conflicts"][0]["description"]  # older source retained in the explanation
 
 
 def test_pair_never_inverted(run):

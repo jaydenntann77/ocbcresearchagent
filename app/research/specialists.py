@@ -12,7 +12,7 @@ import hashlib
 import json
 import re
 import sqlite3
-from datetime import date
+from datetime import date, datetime
 
 from app.common import config, embedding
 from app.common.instruments import CURRENCY_NAMES, display_name, instrument_aliases, related_rate_keys
@@ -71,6 +71,41 @@ def _jaccard(a: str, b: str) -> float:
     return len(ta & tb) / max(1, len(ta | tb))
 
 
+_DATE_RE = re.compile(r"(\d{1,2})\s+([A-Za-z]{3})[a-z]*\.?\s+(20\d{2})")
+
+
+def _stated_date(r: dict) -> date | None:
+    """The forecast update date a table states ("Latest Forecast Update: 30 October 2026")."""
+    m = _DATE_RE.search(r.get("data_date") or "")
+    if m:
+        try:
+            return datetime.strptime(f"{m.group(1)} {m.group(2).title()} {m.group(3)}", "%d %b %Y").date()
+        except ValueError:
+            pass
+    return None
+
+
+def _effective_date(r: dict) -> date:
+    """When a forecast was set: the stated update date, else the publication date."""
+    return _stated_date(r) or (date.fromisoformat(r["publication_date"]) if r.get("publication_date") else date.min)
+
+
+def _problem_text(listing: dict, state: str, detail: str) -> str:
+    """A listed document that could not be read, in words a reader can act on."""
+    name = listing.get("title") or "A listed document"
+    # Most titles already carry their date ("... (2 Oct 2026)").
+    when = f" ({listing['listing_date_text']})" if listing.get("listing_date_text") and "(" not in name else ""
+    if "404" in detail:
+        why = "its link on ocbc.com leads to a missing page"
+    elif "boundary" in detail:
+        why = "its link on ocbc.com is broken"
+    elif state in ("invalid_pdf", "parse_failed"):
+        why = "the PDF could not be read"
+    else:
+        why = "it could not be downloaded"
+    return f"{name}{when} is listed on ocbc.com, but {why}, so it is not included in this answer."
+
+
 class CorpusStatus:
     """Read-only view of ingestion outcomes, used only to explain coverage gaps."""
 
@@ -104,7 +139,7 @@ class CorpusStatus:
                 spec = policy.get(listing.get("section") or "") or policy.get(listing.get("category") or "")
                 if spec in (None, specialist):
                     key = "extraction_failed" if r["state"] in ("invalid_pdf", "parse_failed") else "inaccessible"
-                    out[key].append(f"{listing.get('title') or r['url']} ({r['state']}: {r['detail']})")
+                    out[key].append(_problem_text(listing, r["state"], r["detail"] or ""))
             for r in conn.execute("SELECT source, category, detail FROM section_checks WHERE run_id=? AND status='failed'",
                                   (run["run_id"],)):
                 spec = policy.get(r["category"] or "")
@@ -170,6 +205,59 @@ class Specialist:
         return n
 
     # ------------------------------------------------------------------ forecasts
+    @staticmethod
+    def _latest_only(records: list[dict], resp: SpecialistResponse) -> list[dict]:
+        """A newer forecast update replaces an older one for the same instrument
+        and period, even when the reports label the period differently ("4Q26"
+        vs "Dec-26"), so only the latest numbers are presented as the view."""
+        by_key: dict[tuple, list[dict]] = {}
+        for r in records:
+            by_key.setdefault((r["instrument_key"], r["scenario"] or ""), []).append(r)
+        kept: list[dict] = []
+        for (key, _), recs in by_key.items():
+            pub = max(r["publication_date"] or "" for r in recs)
+            latest = [r for r in recs if (r["publication_date"] or "") == pub]
+            stated = [d for d in (_stated_date(r) for r in latest) if d]
+            if stated:
+                # Same-day reports: a later stated update wins; one with no stated
+                # date cannot be ordered against it, so it stays (shown as differing).
+                latest = [r for r in latest if _stated_date(r) in (None, max(stated))]
+            last_end = max((r["horizon_end"] for r in latest if r["horizon_kind"] == "absolute"), default="")
+            # Older periods beyond the latest table's reach are still the newest view of them.
+            older = [r for r in recs if r not in latest]
+            def same(r) -> bool:
+                return any(n["horizon_end"] == r["horizon_end"] and r["horizon_end"]
+                           and n["value"].replace(",", "") == r["value"].replace(",", "") for n in latest)
+
+            # A report whose dated forecasts match the latest ones is from the same forecast
+            # round, so its 3M/6M/12M figures still stand when the latest table has none.
+            current = {(r["title"], _effective_date(r)) for r in older if r["horizon_kind"] == "absolute" and same(r)}
+            current -= {(r["title"], _effective_date(r)) for r in older
+                        if r["horizon_kind"] == "absolute" and r["horizon_end"] <= last_end and not same(r)}
+            has_relative = any(r["horizon_kind"] != "absolute" for r in latest)
+            replaced = [r for r in older if (r["horizon_kind"] == "absolute" and r["horizon_end"] <= last_end)
+                        or (r["horizon_kind"] != "absolute"
+                            and (has_relative or (r["title"], _effective_date(r)) not in current))]
+            kept += latest + [r for r in older if r not in replaced]
+            changed = {(r["title"], _effective_date(r)) for r in replaced if not same(r)
+                       and (r["title"], _effective_date(r)) not in current}
+            if changed:
+                src = max(latest, key=lambda r: (_stated_date(r) or date.min, r["publication_date"] or ""))
+                when = (f"updated on {_stated_date(src):%-d %b %Y}" if _stated_date(src)
+                        else f"published {date.fromisoformat(src['publication_date']):%-d %b %Y}")
+                by_date: dict[date, list[str]] = {}
+                for t, d in sorted(changed, key=lambda x: (x[1], x[0])):
+                    by_date.setdefault(d, []).append(t)
+                earlier = "; ".join(f"the {d:%-d %b %Y} update ({ts[-1]}" + (f" and {len(ts) - 1} other report"
+                                    f"{'s' if len(ts) > 2 else ''})" if len(ts) > 1 else ")")
+                                    for d, ts in by_date.items())
+                resp.conflicts.append(Conflict(
+                    description=(f"{display_name(key)}: the latest forecast ({src['title']}, {when}) replaces "
+                                 f"{earlier}. Only the latest forecast is shown."),
+                    instrument_key=key, horizon_label="",
+                    record_ids=[r["record_id"] for r in replaced][:20], resolution="latest_publication_applies"))
+        return kept
+
     def _forecasts(self, task, handles, resp: SpecialistResponse):
         requested = [k for k in task.instruments]
         if not requested:
@@ -210,7 +298,7 @@ class Specialist:
             y = int(r["horizon_end"][:4])
             return (today.year <= y <= max(years)) if through else (y in years)
 
-        selected = [r for r in forecasts if wanted(r)]
+        selected = self._latest_only([r for r in forecasts if wanted(r)], resp)
         # Group identical instrument/horizon/scenario across documents.
         groups: dict[tuple, list[dict]] = {}
         for r in selected:

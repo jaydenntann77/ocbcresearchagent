@@ -237,14 +237,33 @@ async function ask(question) {
     }
     if (!answered) throw new Error("connection closed before an answer was returned");
   } catch (e) {
+    // The server keeps working when the connection drops, so the answer may
+    // still arrive in the saved conversation.
+    const saved = await recoverAnswer(question, prog);
     prog.done();
-    thread.append(errorCard(`The request could not be completed (${e.message}). No answer was generated — please retry.`));
+    if (saved) thread.append(renderAnswer(saved));
+    else thread.append(errorCard(`The request could not be completed (${e.message}). No answer was generated — please retry.`));
   } finally {
     state.busy = false;
     $("send").disabled = false;
     thread.scrollTop = thread.scrollHeight;
     loadHistory();
   }
+}
+
+async function recoverAnswer(question, prog) {
+  if (!state.cid) return null;
+  prog.step("Connection dropped — checking for the finished answer");
+  for (let i = 0; i < 24; i++) {
+    try {
+      const conv = await api(`/api/conversations/${state.cid}`);
+      const msgs = conv.messages || [];
+      const last = msgs[msgs.length - 1];
+      if (last && last.role === "assistant" && last.answer && last.answer.question === question) return last.answer;
+    } catch (_) { /* still offline */ }
+    await new Promise((r) => setTimeout(r, 5000));
+  }
+  return null;
 }
 
 function errorCard(msg) {

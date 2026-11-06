@@ -312,3 +312,52 @@ def test_subjects_come_from_the_users_words_not_the_rewrite():
     assert "USD" in p.currencies and [s["name"] for s in find_subjects(q, p)] == ["bitcoin"]
     q = "Summarize OCBC's published view on SGD interest rates."
     assert [s["name"] for s in find_subjects(q, planner.plan_request(q, None, WIN))] == ["SGD"]
+
+
+def test_unreadable_document_note_is_plain():
+    from app.research.specialists import _problem_text
+    listing = {"title": "OCBC Daily Treasury Outlook (2 Oct 2026)", "listing_date_text": "02 Oct 2026"}
+    text = _problem_text(listing, "inaccessible", "source boundary: path outside OCBC research boundary: /html/404.html")
+    assert text == ("OCBC Daily Treasury Outlook (2 Oct 2026) is listed on ocbc.com, but its link on "
+                    "ocbc.com leads to a missing page, so it is not included in this answer.")
+    assert _problem_text({"title": "Softer UST yields", "listing_date_text": "04 Nov 2026"}, "inaccessible",
+                         "source boundary: path outside OCBC research boundary: /Softer UST yields.pdf") == (
+        "Softer UST yields (04 Nov 2026) is listed on ocbc.com, but its link on ocbc.com is broken, so it is not "
+        "included in this answer.")
+
+
+def test_newer_forecast_update_replaces_older_across_period_labels():
+    from app.common.schemas import SpecialistResponse
+    from app.research.specialists import Specialist
+
+    def rec(i, label, end, value, pub, data_date="", title="T", kind="absolute"):
+        return {"record_id": f"r{i}", "instrument_key": "GOLD", "scenario": "", "horizon_label": label,
+                "horizon_kind": kind, "horizon_end": end, "value": value, "publication_date": pub,
+                "data_date": data_date, "title": title}
+    oct30 = "Latest Forecast Update: 30 October 2026"
+    recs = [rec(1, "4Q26", "2026-12-31", "4,600", "2026-10-01", title="Monthly Commodities Outlook"),
+            rec(2, "4Q27", "2027-12-31", "5,050", "2026-10-01", title="Monthly Commodities Outlook"),
+            rec(3, "4Q28", "2028-12-31", "5,200", "2026-10-01", title="Monthly Commodities Outlook"),
+            rec(4, "12M", "", "4960", "2026-10-19", "Latest Forecast Update: 25 September 2026", kind="relative"),
+            rec(5, "Dec-26", "2026-12-31", "4250", "2026-11-02", oct30, title="FX Weekly"),
+            rec(6, "Dec-27", "2027-12-31", "4710", "2026-11-02", oct30, title="FX Weekly"),
+            rec(7, "Dec-26", "2026-12-31", "4,250", "2026-10-31", "Latest Forecast Update: 29 October 2026",
+                title="Same numbers"),
+            rec(8, "12M", "", "4,630", "2026-10-31", "Latest Forecast Update: 29 October 2026", title="Same numbers",
+                kind="relative")]
+    resp = SpecialistResponse(task_id="t", specialist="fx", status="ok")
+    kept = {r["record_id"] for r in Specialist._latest_only(recs, resp)}
+    # The 30 Oct update replaces the older figures it covers; 4Q28 lies beyond it and stays.
+    # The 29 Oct report has the same dated figures, so its 12M forecast still stands.
+    assert kept == {"r3", "r5", "r6", "r8"}
+    assert resp.conflicts[0].description == (
+        "Gold: the latest forecast (FX Weekly, updated on 30 Oct 2026) replaces the 25 Sep 2026 update (T); the "
+        "1 Oct 2026 update (Monthly Commodities Outlook). Only the latest forecast is shown.")
+    assert resp.conflicts[0].resolution == "latest_publication_applies"
+
+
+def test_row_label_drops_printed_spot_level():
+    from app.orchestrator.composer import _row_label
+    assert _row_label("Gold (USD/oz) 4,182") == "Gold (USD/oz)"
+    assert _row_label("10Y UST") == "10Y UST"
+    assert _row_label("USD-SGD") == "USD-SGD"

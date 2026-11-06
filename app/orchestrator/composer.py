@@ -62,7 +62,7 @@ def _one_representation(question: str, forecasts: list) -> list:
 def _path_sentence(fvs: list) -> str:
     """Template sentence naming the start and end of a published path (not every value)."""
     first, last = fvs[0], fvs[-1]
-    name = first.instrument_label
+    name = _row_label(first.instrument_label)
     if first.unit and name.endswith(first.unit):  # "Gold $/oz" -> "gold"
         name = name[:-len(first.unit)].strip().lower()
     if len(fvs) == 1:
@@ -81,6 +81,12 @@ def _path_sentence(fvs: list) -> str:
 
 
 PART_ORDER = {"view": 0, "path": 1, "why": 2, "risks": 3, "conclusion": 4}
+def _row_label(label: str) -> str:
+    """Some tables print the current level after the name ("Gold (USD/oz) 4,182");
+    that number is not part of the instrument's name."""
+    return re.sub(r"\s+[\d,]+(?:\.\d+)?$", "", label) or label
+
+
 TENOR_KEY_RE = re.compile(r"^([A-Z]+?)OIS(\d{1,2})([MY])$")
 
 
@@ -272,7 +278,7 @@ def compose(question: str, plan, responses: list[SpecialistResponse], validator,
         fv = forecast_meta[r.record_id]
         ev = evidence.get(r.evidence_id)
         table.append({
-            "instrument": r.instrument_label, "horizon": r.horizon_label, "horizon_kind": fv.horizon_kind,
+            "instrument": _row_label(r.instrument_label), "horizon": r.horizon_label, "horizon_kind": fv.horizon_kind,
             "value": r.value, "unit": r.unit, "quotation": r.instrument_label if not r.unit else None,
             "scenario": r.scenario or "Baseline", "publication_date": r.publication_date,
             "publication_label": _d(r.publication_date), "data_date": fv.data_date,

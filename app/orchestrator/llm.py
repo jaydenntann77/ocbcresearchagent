@@ -50,7 +50,9 @@ Rules:
 - Copy numbers exactly as they appear, with their original horizon labels, units and trailing zeros. Never round,
   invert currency pairs or compute values. Name only the start and end of a forecast path, not every value.
 - Keep publication date, forecast-update date and forecast horizon distinct. A newer document does not make an
-  older forecast revised unless it states a changed forecast. Never average conflicting views.
+  older forecast revised unless it states a changed forecast. Never average conflicting views. The forecast table
+  shows only the latest forecast for each instrument; never quote figures from an older report or earlier forecast
+  update for the same instrument and period as if they were also current.
 - Translate technical research language into clear client language while keeping its meaning.
 - If the evidence does not address something the question asks about (an instrument, market, company, topic or
   horizon), write nothing about it: never substitute a related market (e.g. USD commentary for a bitcoin or

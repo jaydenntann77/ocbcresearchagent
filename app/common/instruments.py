@@ -148,6 +148,8 @@ def display_name(key: str) -> str:
         return BENCHMARK_RATES[key][1]
     if len(key) == 6 and key[:3] in CURRENCIES and key[3:] in CURRENCIES:
         return f"{key[:3]}/{key[3:]}"
+    if key in COMMODITY_KEYS.values():
+        return {"WTI": "WTI", "BRENT": "Brent"}.get(key, key.title())
     return {"FEDFUNDS": "Fed funds rate"}.get(key, key)
 
 
