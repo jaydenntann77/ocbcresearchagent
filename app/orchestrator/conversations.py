@@ -104,3 +104,22 @@ def take_model_call(cap: int) -> bool:
         conn.execute("INSERT INTO model_usage(day, calls) VALUES(?, 1) ON CONFLICT(day) DO UPDATE SET calls=calls+1",
                      (day,))
         return True
+
+
+def get_message(cid: str, mid: str, owner: str) -> tuple[dict, str] | None:
+    """(assistant answer, the user question it answered) for one message of a conversation the owner holds."""
+    conv = get(cid, owner)
+    if not conv:
+        return None
+    question = ""
+    for m in conv["messages"]:
+        if m["role"] == "user":
+            question = m["content"]
+        elif m["id"] == mid and m["answer"]:
+            return m["answer"], question
+    return None
+
+
+def update_answer(cid: str, mid: str, answer: dict):
+    with _lock, _conn() as conn:
+        conn.execute("UPDATE messages SET answer=? WHERE id=? AND conversation_id=?", (json.dumps(answer), mid, cid))

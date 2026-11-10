@@ -1,7 +1,8 @@
 """User-facing gateway (port 8000; 0.0.0.0:7860 when hosted).
 
 Serves the frontend and proxies a fixed set of routes:
-  /api/chat, /api/meta, /api/conversations*  -> conversation API (orchestrator)
+  /api/chat, /api/meta, /api/conversations*  -> conversation API (orchestrator),
+                                               incl. logging a confirmed client interaction
   /api/docs/*                                -> document viewer
   /api/admin/*                               -> ingestion admin
 There is no route to the specialist or validator services, so specialist
@@ -198,6 +199,13 @@ async def convs(request: Request, cid: str | None = None):
     if cid and not re.fullmatch(r"c-[a-f0-9]{12}", cid):
         raise HTTPException(400, "invalid id")
     return await _proxy(request, f"{ORCH}/v1/conversations" + (f"/{cid}" if cid else ""), config.TOKEN_GATEWAY_ORCH)
+
+
+@app.post("/api/conversations/{cid}/messages/{mid}/client-log")
+async def client_log(request: Request, cid: str, mid: str):
+    if not (re.fullmatch(r"c-[a-f0-9]{12}", cid) and re.fullmatch(r"m-[a-f0-9]{12}", mid)):
+        raise HTTPException(400, "invalid id")
+    return await _proxy(request, f"{ORCH}/v1/conversations/{cid}/messages/{mid}/client-log", config.TOKEN_GATEWAY_ORCH)
 
 
 @app.get("/api/docs/{path:path}")

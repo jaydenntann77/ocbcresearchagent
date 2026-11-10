@@ -23,7 +23,7 @@ from app.clientdata import schema
 
 AS_OF = date(2026, 11, 5)            # matches the research corpus end date
 HISTORY_START = date(2026, 5, 4)     # ~6 months of trade history
-DB_PATH = config.DATA_DIR / "clientdata" / "clientdata.db"
+DB_PATH = config.CLIENT_DIR / "clientdata.db"
 CSV_DIR = config.ROOT / "dummy_data"
 
 # pair -> (made-up spot anchor at AS_OF, annualised vol, decimals, pip size)
