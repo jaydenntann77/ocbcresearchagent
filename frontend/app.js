@@ -463,7 +463,44 @@ function renderAnswer(a) {
     foot.append(el("button", { class: "btn btn-ghost", type: "button", onclick: () => copyText(answerMarkdown(a), "Answer copied") }, svg("copy"), "Copy answer"));
     if (a.table && a.table.length) foot.append(el("button", { class: "btn btn-ghost", type: "button", onclick: () => copyText(tableMarkdown(a), "Table copied") }, svg("copy"), "Copy table"));
   }
-  return el("article", { class: "answer" }, head, body, foot.childNodes.length ? foot : null);
+  const mem = a.pending_memory ? memoryCard(a.pending_memory) : null;
+  return el("article", { class: "answer" }, head, body, mem, foot.childNodes.length ? foot : null);
+}
+
+// ------------------------------------------------------------------ client memory
+function memoryCard(p) {
+  const box = el("div", { class: "section memory-card" });
+  const draw = (...children) => box.replaceChildren(el("h3", { text: "Client memory" }), ...children);
+
+  const showPrompt = () => {
+    const table = el("div", { class: "table-wrap" }, el("table", { class: "fc" },
+      el("thead", {}, el("tr", {}, ["Name", "Company", "Description", "Time (SGT)"].map((h) => el("th", { text: h })))),
+      el("tbody", {}, el("tr", {},
+        el("td", { text: p.name }), el("td", { text: p.company }),
+        el("td", { text: p.description }), el("td", { text: p.time })))));
+    const yes = el("button", { class: "btn btn-primary", type: "button", text: "Yes, save", onclick: async () => {
+      yes.disabled = true;
+      try {
+        const r = await api("/api/memory/confirm", { method: "POST", body: JSON.stringify(p) });
+        showSaved(r.recent || []);
+      } catch (e) { yes.disabled = false; toast(`Could not save (${e.message})`); }
+    } });
+    const no = el("button", { class: "btn btn-ghost", type: "button", text: "No, cancel", onclick: () => {
+      draw(el("p", { class: "policy", text: "Not saved." }));
+    } });
+    draw(el("p", { text: p.ask }), table, el("div", { class: "controls" }, yes, no));
+  };
+
+  const showSaved = (recent) => {
+    draw(
+      el("p", { text: `Saved for ${p.name} (${p.company}).` }),
+      recent.length > 1 ? el("div", {},
+        el("h4", { text: `Client history: ${p.name}` }),
+        el("ul", { class: "limits" }, recent.map(([desc, when]) => el("li", { text: `${when}: ${desc}` })))) : null);
+  };
+
+  showPrompt();
+  return box;
 }
 
 // ------------------------------------------------------------------ copy

@@ -35,7 +35,7 @@ from fastapi.responses import StreamingResponse  # noqa: E402
 from app.common.schemas import SPECIALIST_LABELS  # noqa: E402
 from app.common.security import require_token  # noqa: E402
 from app.common.timeutil import fmt_dt, fmt_range, now_sgt  # noqa: E402
-from app.orchestrator import client_memory, composer, conversations, guardrails, llm, planner  # noqa: E402from app.orchestrator.clients import ResearchClient, ServiceError, ValidatorClient  # noqa: E402
+from app.orchestrator import client_memory, composer, conversations, guardrails, llm, planner  # noqa: E402
 from app.orchestrator.clients import ResearchClient, ServiceError, ValidatorClient  # noqa: E402
 
 app = FastAPI(title="Conversation API", docs_url=None, redoc_url=None, openapi_url=None)
