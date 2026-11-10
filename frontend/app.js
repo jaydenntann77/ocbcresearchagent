@@ -490,7 +490,10 @@ function memoryCard(p) {
     } });
     const ins = (p.insights || []).length ? el("div", { class: "insights" },
       el("h4", { text: `Insights: ${p.name} (${p.company})` }),
-      el("ul", { class: "limits" }, p.insights.map((t) => el("li", { text: t })))) : null;
+      el("ul", { class: "limits" }, p.insights.map((t) => {
+        const i = t.search(/[;:]/);
+        return i > 0 ? el("li", {}, el("b", { text: t.slice(0, i + 1) }), t.slice(i + 1)) : el("li", { text: t });
+      }))) : null;
     draw(el("p", { text: p.ask }), ins, table, el("div", { class: "controls", style: "margin-top:12px" }, yes, no));
   };
 
@@ -507,8 +510,7 @@ function memoryCard(p) {
 }
 
 // ------------------------------------------------------------------ copy
-function refs(a, nums) python run.py --stop
-python run.py{
+function refs(a, nums){
   return (nums || []).map((n) => `[${n}]`).join("");
 }
 function sourceLines(a, only) {
