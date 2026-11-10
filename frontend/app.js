@@ -470,7 +470,7 @@ function renderAnswer(a) {
 // ------------------------------------------------------------------ client memory
 function memoryCard(p) {
   const box = el("div", { class: "section memory-card" });
-  const draw = (...children) => box.replaceChildren(el("h3", { text: "Client memory" }), ...children);
+  const draw = (...children) => box.replaceChildren(el("h3", { text: "Client memory" }), ...children.filter(Boolean));
 
   const showPrompt = () => {
     const table = el("div", { class: "table-wrap" }, el("table", { class: "fc" },
@@ -488,7 +488,11 @@ function memoryCard(p) {
     const no = el("button", { class: "btn btn-ghost", type: "button", text: "No, cancel", onclick: () => {
       draw(el("p", { class: "policy", text: "Not saved." }));
     } });
-    draw(el("p", { text: p.ask }), table, el("div", { class: "controls", style: "margin-top:12px" }, yes, no));  };
+    const ins = (p.insights || []).length ? el("div", { class: "insights" },
+      el("h4", { text: `Insights: ${p.name} (${p.company})` }),
+      el("ul", { class: "limits" }, p.insights.map((t) => el("li", { text: t })))) : null;
+    draw(el("p", { text: p.ask }), ins, table, el("div", { class: "controls", style: "margin-top:12px" }, yes, no));
+  };
 
   const showSaved = (recent) => {
     draw(
@@ -503,7 +507,8 @@ function memoryCard(p) {
 }
 
 // ------------------------------------------------------------------ copy
-function refs(a, nums) {
+function refs(a, nums) python run.py --stop
+python run.py{
   return (nums || []).map((n) => `[${n}]`).join("");
 }
 function sourceLines(a, only) {
