@@ -463,8 +463,8 @@ function renderAnswer(a) {
     foot.append(el("button", { class: "btn btn-ghost", type: "button", onclick: () => copyText(answerMarkdown(a), "Answer copied") }, svg("copy"), "Copy answer"));
     if (a.table && a.table.length) foot.append(el("button", { class: "btn btn-ghost", type: "button", onclick: () => copyText(tableMarkdown(a), "Table copied") }, svg("copy"), "Copy table"));
   }
-  const mem = a.pending_memory ? memoryCard(a.pending_memory) : null;
-  return el("article", { class: "answer" }, head, body, mem, foot.childNodes.length ? foot : null);
+  if (a.pending_memory) body.append(memoryCard(a.pending_memory));
+  return el("article", { class: "answer" }, head, body, foot.childNodes.length ? foot : null);
 }
 
 // ------------------------------------------------------------------ client memory
@@ -488,8 +488,7 @@ function memoryCard(p) {
     const no = el("button", { class: "btn btn-ghost", type: "button", text: "No, cancel", onclick: () => {
       draw(el("p", { class: "policy", text: "Not saved." }));
     } });
-    draw(el("p", { text: p.ask }), table, el("div", { class: "controls" }, yes, no));
-  };
+    draw(el("p", { text: p.ask }), table, el("div", { class: "controls", style: "margin-top:12px" }, yes, no));  };
 
   const showSaved = (recent) => {
     draw(
