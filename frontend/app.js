@@ -488,7 +488,7 @@ function memoryCard(p) {
     const no = el("button", { class: "btn btn-ghost", type: "button", text: "No, cancel", onclick: () => {
       draw(el("p", { class: "policy", text: "Not saved." }));
     } });
-    const ins = (p.insights || []).length ? el("div", { class: "insights" },
+    const ins = (p.insights || []).length ? el("div", { class: "insights", style: "margin-bottom:16px" },
       el("h4", { text: `Insights: ${p.name} (${p.company})` }),
       el("ul", { class: "limits" }, p.insights.map((t) => {
         const i = t.search(/[;:]/);
