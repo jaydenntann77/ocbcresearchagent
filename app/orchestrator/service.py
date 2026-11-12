@@ -35,7 +35,7 @@ from fastapi.responses import StreamingResponse  # noqa: E402
 from app.common.schemas import SPECIALIST_LABELS  # noqa: E402
 from app.common.security import require_token  # noqa: E402
 from app.common.timeutil import fmt_dt, fmt_range, now_sgt  # noqa: E402
-from app.orchestrator import composer, conversations, guardrails, llm, planner  # noqa: E402
+from app.orchestrator import client_memory, composer, conversations, guardrails, llm, planner  # noqa: E402
 from app.orchestrator.clients import ClientDataClient, ResearchClient, ServiceError, ValidatorClient  # noqa: E402
 
 app = FastAPI(title="Conversation API", docs_url=None, redoc_url=None, openapi_url=None)
@@ -154,8 +154,12 @@ def answer_question(question: str, state: dict, emit) -> tuple[dict, dict]:
                       SPECIALIST_LABELS.get(plan.lead or "", None), "instruments": plan.instruments,
                       "horizon": plan.horizon, "info_types": plan.info_types, "inherited_context": plan.inherited,
                       "search_terms": terms}
-    return answer, {"last_plan": plan.to_state()}
-
+    entry = client_memory.propose(question, state.get("last_client"))
+    new_state = {**state, "last_plan": plan.to_state()}
+    if entry:
+        answer["pending_memory"] = entry
+        new_state["last_client"] = {"name": entry["name"], "company": entry["company"]}
+    return answer, new_state
 
 def identify_client(question: str, state: dict, emit) -> dict | None:
     """Which client the question is about. Falls back to the client confirmed earlier
@@ -301,3 +305,12 @@ def client_log(cid: str, mid: str, payload: dict = Body(...), x_ra_session: str 
     answer["client"] = client
     conversations.update_answer(cid, mid, answer)
     return {"client": client}
+
+
+@app.post("/v1/memory/confirm", dependencies=[Depends(auth)])
+def memory_confirm(payload: dict = Body(...)):
+    entry = {k: str(payload.get(k) or "").strip()[:300] for k in ("name", "company", "description", "time")}
+    if not all(entry.values()):
+        raise HTTPException(400, "name, company, description and time are required")
+    client_memory.save(entry)
+    return {"saved": True, "recent": client_memory.history(entry["name"], 5)}

@@ -464,6 +464,7 @@ function renderAnswer(a, mid) {
     foot.append(el("button", { class: "btn btn-ghost", type: "button", onclick: () => copyText(answerMarkdown(a), "Answer copied") }, svg("copy"), "Copy answer"));
     if (a.table && a.table.length) foot.append(el("button", { class: "btn btn-ghost", type: "button", onclick: () => copyText(tableMarkdown(a), "Table copied") }, svg("copy"), "Copy table"));
   }
+  if (a.pending_memory) body.append(memoryCard(a.pending_memory));
   return el("article", { class: "answer" }, head, body, foot.childNodes.length ? foot : null);
 }
 
@@ -521,8 +522,50 @@ function clientBar(a, mid, cid) {
   return box;
 }
 
+// ------------------------------------------------------------------ client memory
+function memoryCard(p) {
+  const box = el("div", { class: "section memory-card" });
+  const draw = (...children) => box.replaceChildren(el("h3", { text: "Client memory" }), ...children.filter(Boolean));
+
+  const showPrompt = () => {
+    const table = el("div", { class: "table-wrap" }, el("table", { class: "fc" },
+      el("thead", {}, el("tr", {}, ["Name", "Company", "Description", "Time (SGT)"].map((h) => el("th", { text: h })))),
+      el("tbody", {}, el("tr", {},
+        el("td", { text: p.name }), el("td", { text: p.company }),
+        el("td", { text: p.description }), el("td", { text: p.time })))));
+    const yes = el("button", { class: "btn btn-primary", type: "button", text: "Yes, save", onclick: async () => {
+      yes.disabled = true;
+      try {
+        const r = await api("/api/memory/confirm", { method: "POST", body: JSON.stringify(p) });
+        showSaved(r.recent || []);
+      } catch (e) { yes.disabled = false; toast(`Could not save (${e.message})`); }
+    } });
+    const no = el("button", { class: "btn btn-ghost", type: "button", text: "No, cancel", onclick: () => {
+      draw(el("p", { class: "policy", text: "Not saved." }));
+    } });
+    const ins = (p.insights || []).length ? el("div", { class: "insights", style: "margin-bottom:16px" },
+      el("h4", { text: `Insights: ${p.name} (${p.company})` }),
+      el("ul", { class: "limits" }, p.insights.map((t) => {
+        const i = t.search(/[;:]/);
+        return i > 0 ? el("li", {}, el("b", { text: t.slice(0, i + 1) }), t.slice(i + 1)) : el("li", { text: t });
+      }))) : null;
+    draw(el("p", { text: p.ask }), ins, table, el("div", { class: "controls", style: "margin-top:12px" }, yes, no));
+  };
+
+  const showSaved = (recent) => {
+    draw(
+      el("p", { text: `Saved for ${p.name} (${p.company}).` }),
+      recent.length > 1 ? el("div", {},
+        el("h4", { text: `Client history: ${p.name}` }),
+        el("ul", { class: "limits" }, recent.map(([desc, when]) => el("li", { text: `${when}: ${desc}` })))) : null);
+  };
+
+  showPrompt();
+  return box;
+}
+
 // ------------------------------------------------------------------ copy
-function refs(a, nums) {
+function refs(a, nums){
   return (nums || []).map((n) => `[${n}]`).join("");
 }
 function sourceLines(a, only) {

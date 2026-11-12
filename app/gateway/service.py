@@ -3,6 +3,8 @@
 Serves the frontend and proxies a fixed set of routes:
   /api/chat, /api/meta, /api/conversations*  -> conversation API (orchestrator),
                                                incl. logging a confirmed client interaction
+  /api/chat, /api/meta, /api/conversations*  -> conversation API (orchestrator)
+  /api/memory/confirm                        -> client memory save (orchestrator)
   /api/docs/*                                -> document viewer
   /api/admin/*                               -> ingestion admin
 There is no route to the specialist or validator services, so specialist
@@ -192,6 +194,11 @@ async def chat(request: Request):
 async def meta(request: Request):
     return await _proxy(request, f"{ORCH}/v1/meta", config.TOKEN_GATEWAY_ORCH)
 
+@app.post("/api/memory/confirm")
+async def memory_confirm(request: Request):
+    if config.PUBLIC_MODE:
+        raise HTTPException(403, "Client memory is disabled on the hosted demo.")
+    return await _proxy(request, f"{ORCH}/v1/memory/confirm", config.TOKEN_GATEWAY_ORCH)
 
 @app.api_route("/api/conversations", methods=["GET"])
 @app.api_route("/api/conversations/{cid}", methods=["GET", "DELETE"])
