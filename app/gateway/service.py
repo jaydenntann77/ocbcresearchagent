@@ -218,8 +218,10 @@ async def demo(request: Request):
 
 @app.post("/api/conversations/{cid}/messages/{mid}/{action}")
 async def client_action(request: Request, cid: str, mid: str, action: str):
-    if action not in ("client-log", "client-pick"):
+    if action not in ("client-log", "client-pick", "model-switch"):
         raise HTTPException(404, "not found")
+    if action == "model-switch" and config.PUBLIC_MODE:
+        raise HTTPException(403, "Switching the Claude API is not available on the hosted demo.")
     if not (re.fullmatch(r"c-[a-f0-9]{12}", cid) and re.fullmatch(r"m-[a-f0-9]{12}", mid)):
         raise HTTPException(400, "invalid id")
     return await _proxy(request, f"{ORCH}/v1/conversations/{cid}/messages/{mid}/{action}", config.TOKEN_GATEWAY_ORCH)

@@ -322,3 +322,5 @@ table.list td.num { text-align: right; font-variant-numeric: tabular-nums; }
   .freshness { font-size: 12px; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
+.notice.model-switch { flex-direction: column; align-items: flex-start; gap: 10px; }
+.notice.model-switch .controls { display: flex; gap: 8px; }

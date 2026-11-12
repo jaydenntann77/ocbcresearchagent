@@ -9,6 +9,7 @@ from contextlib import closing
 from datetime import datetime, timedelta, timezone
 
 from app.common import config
+from app.orchestrator import model_switch
 
 SGT = timezone(timedelta(hours=8))
 DB_PATH = os.path.join(str(config.ORCH_DIR), "client_memory.db")
@@ -62,14 +63,19 @@ def _rule_clean(desc: str) -> str:
 
 
 def _ai_clean(desc: str) -> str | None:
-    """Ask Claude for a short summary. Only the ask text is sent. None on any problem."""
-    if not config.model_credentials_present():
+    """Ask Claude for a short summary. Only the ask text is sent. None on any problem, and no call
+    at all unless the Claude API switch is ON."""
+    if not model_switch.enabled():
         return None
     try:
         import anthropic
         client = anthropic.Anthropic(timeout=8.0, max_retries=0)
-        msg = client.messages.create(model=SUMMARY_MODEL, max_tokens=60, system=SYSTEM,
+        # Haiku 5.5 thinks by default; a 60-token cap could be used up before any text was written.
+        msg = client.messages.create(model=SUMMARY_MODEL, max_tokens=1024, system=SYSTEM,
+                                     output_config={"effort": "low"},
                                      messages=[{"role": "user", "content": f"<note>{desc[:500]}</note>"}])
+        if msg.stop_reason != "end_turn":
+            return None
         text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
         text = text.strip().splitlines()[0].strip(" \"'.")
         return text if 3 <= len(text) <= 160 else None

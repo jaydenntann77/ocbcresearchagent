@@ -136,6 +136,8 @@ def main():
     if not config.model_credentials_present():
         print("Model credential not configured: running in extractive mode (set ANTHROPIC_API_KEY in .env to enable "
               "model-assisted synthesis).")
+    elif not config.PUBLIC_MODE:
+        print("Claude API: OFF (it starts off every time). Type \"turn on Claude API\" in the chat to switch it on.")
     if check_only:
         for p in procs.values():
             p.terminate()

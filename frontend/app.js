@@ -95,12 +95,20 @@ function renderFreshness() {
     if (c.window.expanded) f.append(el("span", { class: "expanded", text: `Expanded window (${c.window.days} days)` }));
   }
   const model = m.model || {};
-  pill.textContent = model.available ? `Model-assisted · ${model.model}` : "Extractive mode";
+  // Model use needs a key in .env AND the Claude API switch ON (off after every restart).
+  // Hosted demo: no switch; the badge reads as before.
+  pill.textContent = model.public_mode ? (model.available ? `Model-assisted · ${model.model}` : "Extractive mode")
+    : model.available ? `Claude API: ON · ${model.model}` : model.key_present ? "Claude API: OFF" : "Claude API: no key";
   pill.className = "mode-pill " + (model.available ? "ok" : "warn");
   pill.title = model.message || "";
-  $("sidebarFoot").textContent = model.available
-    ? "Model-assisted synthesis is enabled. Every sentence is validated against cited OCBC evidence."
-    : "No model credential configured: answers quote OCBC research verbatim. Set ANTHROPIC_API_KEY to enable synthesis.";
+  $("sidebarFoot").textContent = model.public_mode
+    ? (model.available ? "Model-assisted synthesis is enabled. Every sentence is validated against cited OCBC evidence."
+      : "No model credential configured: answers quote OCBC research verbatim.")
+    : model.available
+    ? "Claude API is ON: model-assisted synthesis. Every sentence is validated against cited OCBC evidence."
+    : model.key_present
+      ? "Claude API is OFF: answers quote OCBC research verbatim and nothing is sent to Anthropic. Type \"turn on Claude API\" to switch it on."
+      : "No API key in .env: answers quote OCBC research verbatim. Add ANTHROPIC_API_KEY to .env and restart to enable it.";
 }
 
 // ------------------------------------------------------------------ history
@@ -442,6 +450,7 @@ function renderAnswer(a, mid) {
     el("span", { class: "spacer" }),
     el("span", { class: "badge", text: `Generated ${a.generated_label}` }));
   const body = el("div", { class: "answer-body" });
+  if (a.model_switch) body.append(modelSwitchBox(a, mid, state.cid));
   for (const n of a.notices || []) {
     body.append(el("div", { class: `notice ${n.kind}` }, svg(n.kind === "web" ? "globe" : "shield"), el("div", { text: n.text })));
   }
@@ -527,6 +536,38 @@ function renderAnswer(a, mid) {
   return el("article", { class: "answer" }, head, body, foot.childNodes.length ? foot : null,
     sourcesFooter ? el("div", { class: "answer-sources" }, sourcesFooter) : null,
     clientBox.childNodes.length ? clientBox : null);
+}
+
+// ------------------------------------------------------------------ Claude API switch
+// A chat command ("turn on vincent claude api") shows this box; only Yes changes anything.
+function modelSwitchBox(a, mid, cid) {
+  const box = el("div", { class: "notice info model-switch" });
+  const draw = (m) => {
+    box.replaceChildren();
+    if (m.status !== "pending" || !m.ask) {
+      box.append(el("div", { text: m.message || `Claude API is ${m.state}.` }));
+      return;
+    }
+    const send = async (yes, btns) => {
+      btns.forEach((b) => (b.disabled = true));
+      try {
+        const res = await api(`/api/conversations/${cid}/messages/${mid}/model-switch`, { method: "POST", body: JSON.stringify({ confirm: yes }) });
+        a.model_switch = res.model_switch;
+        draw(res.model_switch);
+        if (state.meta) { state.meta.model = res.model; renderFreshness(); }
+      } catch (e) {
+        btns.forEach((b) => (b.disabled = false));
+        toast(`Not changed: ${e.message}`);
+      }
+    };
+    const yes = el("button", { class: "btn btn-primary", type: "button", text: "Yes" });
+    const no = el("button", { class: "btn btn-ghost", type: "button", text: "No" });
+    yes.onclick = () => send(true, [yes, no]);
+    no.onclick = () => send(false, [yes, no]);
+    box.append(el("div", { text: m.ask }), el("div", { class: "controls" }, yes, no));
+  };
+  draw(a.model_switch);
+  return box;
 }
 
 // ------------------------------------------------------------------ client identification

@@ -18,6 +18,7 @@ import re
 
 from app.common import config
 from app.common.instruments import pair_key
+from app.orchestrator import model_switch
 
 MODEL = "claude-haiku-5-5"
 SYSTEM = ("You lightly reword short internal FX trade notes for a bank salesperson. You get numbered lines. "
@@ -85,7 +86,7 @@ def _entries(ctx: dict) -> list[tuple[str, int, str | None, str]]:
 
 def rewrite(texts: list[str]) -> str | None:
     """Haiku's numbered rewording of `texts`, or None (switched off, no credential, or any error)."""
-    if not texts or not (config.CLIENT_NOTE_MODEL and config.model_credentials_present()):
+    if not texts or not (config.CLIENT_NOTE_MODEL and model_switch.enabled()):
         return None
     try:
         import anthropic

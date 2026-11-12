@@ -36,7 +36,8 @@ from app.common.instruments import CURRENCIES, find_pairs  # noqa: E402
 from app.common.schemas import SPECIALIST_LABELS  # noqa: E402
 from app.common.security import require_token  # noqa: E402
 from app.common.timeutil import fmt_dt, fmt_range, now_sgt  # noqa: E402
-from app.orchestrator import client_memory, composer, conversations, guardrails, llm, planner, trade_note  # noqa: E402
+from app.orchestrator import (client_memory, composer, conversations, guardrails, llm, model_switch,  # noqa: E402
+                              planner, trade_note)
 from app.orchestrator.clients import ClientDataClient, ResearchClient, ServiceError, ValidatorClient  # noqa: E402
 
 app = FastAPI(title="Conversation API", docs_url=None, redoc_url=None, openapi_url=None)
@@ -300,8 +301,13 @@ def chat(payload: dict = Body(...), x_ra_session: str = Header(default="local"))
             prior = conversations.get_state(cid)
             # A "which client?" picker listens to the very next message only.
             pending = prior.pop("pending_pick", None)
-            pick = clientdata.resolve_pick(question, pending["candidates"]) if pending else None
-            if pick:
+            command = model_switch.parse_command(question)
+            pick = clientdata.resolve_pick(question, pending["candidates"]) if pending and not command else None
+            if command:
+                # "turn on vincent claude api" etc.: no research; ask Yes/No before anything changes.
+                answer, state = _simple(question, "info", ""), prior
+                answer.update(suggestions=[], model_switch=model_switch.proposal(command))
+            elif pick:
                 answer, state = pick_reply(cid, question, prior, pending, pick, x_ra_session, emit)
             else:
                 client = identify_client(question, prior, emit)
@@ -350,6 +356,23 @@ def _clear_pending(cid: str, mid: str, pick: dict | None = None):
     if pick:
         state["client"] = pick
     conversations.set_state(cid, state)
+
+
+@app.post("/v1/conversations/{cid}/messages/{mid}/model-switch", dependencies=[Depends(auth)])
+def model_switch_confirm(cid: str, mid: str, payload: dict = Body(...), x_ra_session: str = Header(default="local")):
+    """Yes / No on a "Turn ON/OFF Claude API?" box. Only Yes changes the switch; refused when hosted."""
+    if config.PUBLIC_MODE:
+        raise HTTPException(403, model_switch.PUBLIC_REFUSED)
+    found = conversations.get_message(cid, mid, x_ra_session)
+    if not found:
+        raise HTTPException(404, "message not found")
+    answer, _ = found
+    entry = answer.get("model_switch")
+    if not entry:
+        raise HTTPException(400, "this message has no Claude API question")
+    answer["model_switch"] = model_switch.confirm(entry, payload.get("confirm") is True)
+    conversations.update_answer(cid, mid, answer)
+    return {"model_switch": answer["model_switch"], "model": llm.status()}
 
 
 @app.post("/v1/conversations/{cid}/messages/{mid}/client-pick", dependencies=[Depends(auth)])
