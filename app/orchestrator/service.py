@@ -358,6 +358,18 @@ def _clear_pending(cid: str, mid: str, pick: dict | None = None):
     conversations.set_state(cid, state)
 
 
+@app.post("/v1/model", dependencies=[Depends(auth)])
+def set_model(payload: dict = Body(...)):
+    """The mode-badge button, sent only after the user clicked Yes in its confirm box."""
+    if config.PUBLIC_MODE:
+        raise HTTPException(403, model_switch.PUBLIC_REFUSED)
+    on = payload.get("enabled") is True
+    if on and not model_switch.key_present():
+        raise HTTPException(400, model_switch.NO_KEY)
+    model_switch.set_on(on)
+    return {"model": llm.status()}
+
+
 @app.post("/v1/conversations/{cid}/messages/{mid}/model-switch", dependencies=[Depends(auth)])
 def model_switch_confirm(cid: str, mid: str, payload: dict = Body(...), x_ra_session: str = Header(default="local")):
     """Yes / No on a "Turn ON/OFF Claude API?" box. Only Yes changes the switch; refused when hosted."""

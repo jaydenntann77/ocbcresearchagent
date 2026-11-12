@@ -123,7 +123,7 @@ def search_terms(question: str) -> list[str]:
 def status() -> dict:
     """Model use needs a key in .env AND the Claude API switch ON (OFF after every restart)."""
     base = {"model": config.MODEL_NAME, "key_present": model_switch.key_present(), "switch_on": model_switch.is_on(),
-            "public_mode": config.PUBLIC_MODE}
+            "public_mode": config.PUBLIC_MODE, "confirm_on": model_switch.ON_COST, "confirm_off": model_switch.OFF_COST}
     if not model_switch.key_present():
         return base | {"available": False,
                        "message": "Model credential not configured (set ANTHROPIC_API_KEY in .env). Running in "

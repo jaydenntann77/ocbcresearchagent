@@ -195,6 +195,7 @@ out["no_research"] = r["answer"]["status"] == "info" and not r["answer"].get("pl
 if sys.argv[2] == "public":
     out["confirm_status"] = confirm(r, True).status_code
     out["model"] = c.get("/v1/meta", headers=h).json()["model"]
+    out["button"] = c.post("/v1/model", json={"enabled": False}, headers=h).status_code
 else:
     out["no"] = confirm(r, False).json()
     out["after_no"] = c.get("/v1/meta", headers=h).json()["model"]["available"]
@@ -203,6 +204,14 @@ else:
     out["after_yes"] = c.get("/v1/meta", headers=h).json()["model"]["available"]
     r3 = chat("disable the api")
     out["off"] = confirm(r3, True).json()["model_switch"]["state"]
+    # the mode-badge button (sent only after Yes in its confirm box)
+    out["button_on"] = c.post("/v1/model", json={"enabled": True}, headers=h).json()["model"]["available"]
+    out["button_off"] = c.post("/v1/model", json={"enabled": False}, headers=h).json()["model"]["available"]
+    key = os.environ.pop("ANTHROPIC_API_KEY")
+    nokey = c.post("/v1/model", json={"enabled": True}, headers=h)
+    out["button_no_key"] = [nokey.status_code, nokey.json()["detail"]]
+    os.environ["ANTHROPIC_API_KEY"] = key
+    out["confirm_texts"] = [c.get("/v1/meta", headers=h).json()["model"][k] for k in ("confirm_on", "confirm_off")]
 print(json.dumps(out))
 """
 
@@ -220,6 +229,9 @@ def test_chat_command_flow_through_orchestrator(tmp_path):
     assert out["no"]["model_switch"]["status"] == "declined" and out["after_no"] is False
     assert out["yes"]["model_switch"]["state"] == "ON" and out["after_yes"] is True
     assert out["off"] == "OFF"
+    assert out["button_on"] is True and out["button_off"] is False
+    assert out["button_no_key"] == [400, "No API key found in .env"]
+    assert out["confirm_texts"] == [model_switch.ON_COST, model_switch.OFF_COST]
 
 
 def test_public_mode_refuses_through_orchestrator(tmp_path):
@@ -227,3 +239,4 @@ def test_public_mode_refuses_through_orchestrator(tmp_path):
     assert out["ask"]["status"] == "refused" and out["ask"]["ask"] is None
     assert out["confirm_status"] == 403
     assert out["model"]["available"] is True and out["model"]["public_mode"] is True   # key present -> on
+    assert out["button"] == 403

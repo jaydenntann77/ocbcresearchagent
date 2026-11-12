@@ -208,6 +208,14 @@ async def convs(request: Request, cid: str | None = None):
     return await _proxy(request, f"{ORCH}/v1/conversations" + (f"/{cid}" if cid else ""), config.TOKEN_GATEWAY_ORCH)
 
 
+@app.post("/api/model")
+async def model_mode(request: Request):
+    """Extractive / Claude API mode button (local only; the switch does not exist when hosted)."""
+    if config.PUBLIC_MODE:
+        raise HTTPException(403, "Switching the Claude API is not available on the hosted demo.")
+    return await _proxy(request, f"{ORCH}/v1/model", config.TOKEN_GATEWAY_ORCH)
+
+
 @app.api_route("/api/demo", methods=["GET", "POST"])
 async def demo(request: Request):
     """Demo mode (pattern clients T01-T04). Local only: switching it is refused when hosted."""

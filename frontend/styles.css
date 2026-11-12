@@ -84,6 +84,11 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .mode-pill { font-size: 12px; padding: 4px 10px; border-radius: 99px; background: var(--line-2); color: var(--ink-2); white-space: nowrap; font-weight: 500; }
 .mode-pill.warn { background: var(--warn-tint); color: var(--warn); }
 .mode-pill.ok { background: var(--ok-tint); color: var(--ok); }
+button.mode-pill { border: 1px solid transparent; font-family: inherit; line-height: 1.4; }
+button.mode-pill.clickable { cursor: pointer; }
+button.mode-pill.clickable:hover { border-color: currentColor; }
+button.mode-pill:disabled { cursor: default; }
+.mode-confirm { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 24px; background: var(--panel); border-bottom: 1px solid var(--line); font-size: 13.5px; }
 .demo-toggle { padding: 5px 12px; font-size: 12.5px; white-space: nowrap; }
 .demo-toggle.on { background: var(--warn-tint); color: var(--warn); border-color: var(--warn); }
 .demo-banner { padding: 8px 24px; background: var(--warn-tint); color: var(--warn); font-size: 13px; font-weight: 600; border-bottom: 1px solid var(--line); }

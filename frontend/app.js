@@ -79,6 +79,7 @@ function renderFreshness() {
     f.append(el("span", { class: "expanded", text: "Research services unavailable" }));
     pill.textContent = "Offline";
     pill.className = "mode-pill warn";
+    pill.disabled = true;
     return;
   }
   const c = m.corpus;
@@ -96,11 +97,15 @@ function renderFreshness() {
   }
   const model = m.model || {};
   // Model use needs a key in .env AND the Claude API switch ON (off after every restart).
-  // Hosted demo: no switch; the badge reads as before.
+  // Locally the badge is a button: Extractive mode <-> Claude API mode, with a Yes/No confirm.
+  // Hosted demo: no switch; the badge reads as before and is not clickable.
+  const local = !model.public_mode;
   pill.textContent = model.public_mode ? (model.available ? `Model-assisted · ${model.model}` : "Extractive mode")
-    : model.available ? `Claude API: ON · ${model.model}` : model.key_present ? "Claude API: OFF" : "Claude API: no key";
-  pill.className = "mode-pill " + (model.available ? "ok" : "warn");
-  pill.title = model.message || "";
+    : model.available ? `Claude API mode · ${model.model}` : "Extractive mode";
+  pill.className = "mode-pill " + (model.available ? "ok" : "warn") + (local ? " clickable" : "");
+  pill.disabled = !local;
+  pill.title = local ? (model.available ? "Click to switch back to extractive mode (no API calls)."
+    : model.key_present ? "Click to switch to Claude API mode." : "No API key found in .env") : (model.message || "");
   $("sidebarFoot").textContent = model.public_mode
     ? (model.available ? "Model-assisted synthesis is enabled. Every sentence is validated against cited OCBC evidence."
       : "No model credential configured: answers quote OCBC research verbatim.")
@@ -990,6 +995,37 @@ function showLogin(message) {
   document.body.append(el("div", { class: "login", id: "login" }, form));
   input.focus();
 }
+
+// ------------------------------------------------------------------ answer mode button
+// Click the mode badge -> confirm strip with the cost note -> only Yes calls the server.
+function closeModeConfirm() { $("modeConfirm").hidden = true; $("modeConfirm").replaceChildren(); }
+
+$("modePill").addEventListener("click", () => {
+  const model = (state.meta && state.meta.model) || {};
+  const box = $("modeConfirm");
+  if (model.public_mode || !box.hidden) { closeModeConfirm(); return; }
+  if (!model.key_present) { toast("No API key found in .env"); return; }
+  const turnOn = !model.available;
+  const yes = el("button", { class: "btn btn-primary", type: "button", text: "Yes" });
+  const no = el("button", { class: "btn btn-ghost", type: "button", text: "No" });
+  no.onclick = closeModeConfirm;
+  yes.onclick = async () => {
+    yes.disabled = no.disabled = true;
+    try {
+      const res = await api("/api/model", { method: "POST", body: JSON.stringify({ enabled: turnOn }) });
+      if (state.meta) state.meta.model = res.model;
+      renderFreshness();
+      toast(res.model.available ? "Claude API mode on" : "Extractive mode: no API calls");
+      closeModeConfirm();
+    } catch (e) {
+      yes.disabled = no.disabled = false;
+      toast(`Not changed: ${e.message}`);
+    }
+  };
+  box.replaceChildren(el("span", { text: turnOn ? model.confirm_on : model.confirm_off }), yes, no);
+  box.hidden = false;
+  yes.focus();
+});
 
 // ------------------------------------------------------------------ demo mode (pattern clients T01-T04)
 // Off at every restart of run.py; the server decides availability (never on the hosted demo).
