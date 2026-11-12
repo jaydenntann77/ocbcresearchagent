@@ -60,7 +60,7 @@ def main(role: str):
                 raise
         finally:
             s.close()
-    for name in ("research", "validator", "docs", "ingestion", "gateway"):
+    for name in ("research", "validator", "docs", "ingestion", "clientdata", "gateway"):
         res[f"loopback_{name}"] = attempt(lambda p=config.PORTS[name]: loop(p))
     res["subprocess"] = attempt(lambda: subprocess.run(["cmd", "/c", "echo", "x"], capture_output=True))
     if role == "orchestrator":

@@ -104,3 +104,21 @@ def test_no_double_counted_documents(conn):
     assert len(shas) == len(set(shas))
     urls = [r[0] for r in conn.execute("SELECT source_url FROM documents WHERE status='indexed'")]
     assert len(urls) == len(set(urls))
+
+
+def test_rate_named_only_in_market_moves_is_explained():
+    """SORA appears only in daily curve-move notes; TONA not at all. Each is reported separately."""
+    import subprocess
+    import sys
+    code = ("from app.research.collections import CollectionRegistry\n"
+            "from app.research import specialists as S\n"
+            "from app.orchestrator import planner\n"
+            "W=('2026-10-26','2026-11-01')\n"
+            "p=planner.plan_request('tell me sora and tona forecast to 2027',None,W)\n"
+            "t=planner.build_tasks(p,W,False)[0]\n"
+            "r=S.Specialist('rates',CollectionRegistry(),S.CorpusStatus()).run(t)\n"
+            "import json; print(json.dumps([c.detail for c in r.coverage]))")
+    out = subprocess.run([sys.executable, "-c", code], cwd=ROOT, capture_output=True, text=True, timeout=300)
+    details = json.loads(out.stdout.strip().splitlines()[-1])
+    assert any(d.startswith("SORA is mentioned in") and "past market moves" in d for d in details)
+    assert any(d.startswith("No passage mentioning TONA") for d in details)

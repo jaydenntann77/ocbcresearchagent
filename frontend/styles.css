@@ -141,6 +141,12 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .notice.web, .notice.info { background: var(--info-tint); color: #1e3f6e; }
 .notice.advice { background: var(--warn-tint); color: #6b4000; }
 .notice.error { background: var(--bad-tint); color: var(--bad); }
+.client-bar { border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; font-size: 13.5px; display: flex; flex-direction: column; gap: 8px; }
+.client-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.client-line svg { width: 16px; height: 16px; color: var(--ok); }
+.client-line.muted { color: var(--ink-2); }
+.client-ask { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.client-ask > span { margin-right: 4px; color: var(--ink-2); }
 
 .cite { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 18px; padding: 0 5px; margin: 0 1px; border-radius: 5px; background: var(--red-tint); color: var(--red-strong); font-size: 11px; font-weight: 700; border: 0; cursor: pointer; vertical-align: 1px; font-family: var(--font); }
 .cite:hover { background: var(--red); color: #fff; }

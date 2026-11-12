@@ -135,7 +135,7 @@ async function openConversation(id) {
   thread.replaceChildren();
   for (const m of conv.messages) {
     if (m.role === "user") thread.append(userBubble(m.content));
-    else if (m.answer) thread.append(renderAnswer(m.answer));
+    else if (m.answer) thread.append(renderAnswer(m.answer, m.id));
   }
   thread.scrollTop = thread.scrollHeight;
   loadHistory();
@@ -231,7 +231,7 @@ async function ask(question) {
         else if (evt.type === "answer") {
           prog.done();
           answered = true;
-          thread.append(renderAnswer(evt.answer));
+          thread.append(renderAnswer(evt.answer, evt.message_id));
         }
       }
     }
@@ -379,7 +379,7 @@ function renderTable(answer) {
       notes.map((n) => el("div", { class: "note" }, el("span", { text: n.text }), citeChips(answer, n.citations)))));
 }
 
-function renderAnswer(a) {
+function renderAnswer(a, mid) {
   if (a.answer_id) state.answers.set(a.answer_id, a);
   const [statusText, statusCls] = STATUS[a.status] || [a.status, ""];
   const head = el("div", { class: "answer-head" },
@@ -387,6 +387,7 @@ function renderAnswer(a) {
     el("span", { class: "spacer" }),
     el("span", { class: "badge", text: `Generated ${a.generated_label}` }));
   const body = el("div", { class: "answer-body" });
+  if (a.client) body.append(clientBar(a, mid, state.cid));
   for (const n of a.notices || []) {
     body.append(el("div", { class: `notice ${n.kind}` }, svg(n.kind === "web" ? "globe" : "shield"), el("div", { text: n.text })));
   }
@@ -465,6 +466,60 @@ function renderAnswer(a) {
   }
   if (a.pending_memory) body.append(memoryCard(a.pending_memory));
   return el("article", { class: "answer" }, head, body, foot.childNodes.length ? foot : null);
+}
+
+// ------------------------------------------------------------------ client identification
+function who(c) {
+  return c.contact_name ? `${c.contact_name}${c.contact_title ? ` (${c.contact_title})` : ""}, ${c.client_name}` : c.client_name;
+}
+
+function clientBar(a, mid, cid) {
+  const box = el("div", { class: "client-bar" });
+  const draw = (client) => {
+    box.replaceChildren();
+    const send = async (body, btns) => {
+      btns.forEach((b) => (b.disabled = true));
+      try {
+        const res = await api(`/api/conversations/${cid}/messages/${mid}/client-log`, { method: "POST", body: JSON.stringify(body) });
+        a.client = res.client;
+        draw(res.client);
+        if (res.client.logged) toast("Saved to the client profile");
+      } catch (e) {
+        btns.forEach((b) => (b.disabled = false));
+        toast(`Not saved: ${e.message}`);
+      }
+    };
+    if (client.logged) {
+      const c = client.candidates[0];
+      box.append(el("div", { class: "client-line" }, svg("check"), el("span", {}, "Logged to ", el("b", { text: c.client_name }), c.contact_name ? ` · ${c.contact_name}` : "")));
+      return;
+    }
+    if (client.declined) {
+      box.append(el("div", { class: "client-line muted", text: "Not logged to a client profile." }));
+      return;
+    }
+    if (!mid || !cid) return;
+    const no = el("button", { class: "btn btn-ghost", type: "button", text: "Not now" });
+    if (client.status === "match") {
+      const c = client.candidates[0];
+      const yes = el("button", { class: "btn btn-primary", type: "button", text: "Log to profile" });
+      yes.onclick = () => send({ client_id: c.client_id, contact_id: c.contact_id || null }, [yes, no]);
+      no.onclick = () => send({ decline: true }, [yes, no]);
+      box.append(el("div", { class: "client-line" },
+        el("span", { class: "badge info", text: client.inherited ? "Same client" : "Client" }),
+        el("span", {}, el("b", { text: who(c) }))),
+        el("div", { class: "client-ask" }, el("span", { text: "Log this question to the client's profile?" }), yes, no));
+    } else {
+      const picks = client.candidates.map((c) => el("button", { class: "btn", type: "button", text: who(c) }));
+      picks.forEach((b, i) => (b.onclick = () => send({ client_id: client.candidates[i].client_id, contact_id: client.candidates[i].contact_id || null }, [...picks, no])));
+      no.onclick = () => send({ decline: true }, [...picks, no]);
+      box.append(el("div", { class: "client-line" }, el("span", { class: "badge warn", text: "Which client?" }),
+        el("span", { text: `"${client.mention}" matches more than one client. Choose one to log this question to their profile.` })),
+        el("div", { class: "client-ask" }, picks, no));
+    }
+  };
+  draw(a.client);
+  return box;
 }
 
 // ------------------------------------------------------------------ client memory

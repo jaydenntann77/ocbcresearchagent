@@ -1,0 +1,23 @@
+contact_id,client_id,first_name,last_name,title,email,is_primary
+P001,C001,Jimmy,Tan,Group Treasurer,jimmy.tan@harbourline.example.com,1
+P002,C001,Rachel,Goh,Finance Manager,rachel.goh@harbourline.example.com,0
+P003,C002,Jimmy,Lee,CFO,jimmy.lee@meridian.example.com,1
+P004,C002,Siew Ling,Ng,Treasury Analyst,siewling.ng@meridian.example.com,0
+P005,C003,Ahmad,Ismail,Finance Director,ahmad.ismail@meridian.example.com,1
+P006,C004,Kenji,Watanabe,VP Finance,kenji.watanabe@kestrel.example.com,1
+P007,C004,Grace,Lim,Treasury Manager,grace.lim@kestrel.example.com,0
+P008,C004,Victor,Chan,CFO,victor.chan@kestrel.example.com,0
+P009,C005,Olivia,Tan,Head of Capital Management,olivia.tan@lumina.example.com,1
+P010,C005,Ben,Yeo,Treasury Associate,ben.yeo@lumina.example.com,0
+P011,C006,Ah Kow,Lim,Owner,ahkow.lim@nanyang.example.com,1
+P012,C006,Michelle,Lim,Accounts,michelle.lim@nanyang.example.com,0
+P013,C007,Budi,Santoso,Group Financial Controller,budi.santoso@orchid.example.com,1
+P014,C007,Natalie,Ong,Treasury Manager,natalie.ong@orchid.example.com,0
+P015,C008,Sean,Pereira,Portfolio Manager,sean.pereira@pinnacle.example.com,1
+P016,C008,Hui Min,Toh,Operations,huimin.toh@pinnacle.example.com,0
+P017,C009,Henry,Wong,Self,henry.wong@wong.example.com,1
+P018,C010,Catherine,Seah,CIO,catherine.seah@silverleaf.example.com,1
+P019,C010,Jimmy,Seah,Investment Associate,jimmy.seah@silverleaf.example.com,0
+P020,C011,Farid,Hassan,Treasurer,farid.hassan@coastal.example.com,1
+P021,C011,Lynn,Chia,FX Desk Liaison,lynn.chia@coastal.example.com,0
+P022,C012,Eugene,Foo,Founder & CEO,eugene.foo@greenfield.example.com,1

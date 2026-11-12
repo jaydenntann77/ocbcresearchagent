@@ -23,10 +23,32 @@ COMMODITY_KEYS = {
     "brent": "BRENT", "wti": "WTI", "copper": "COPPER", "aluminium": "ALUMINIUM", "aluminum": "ALUMINIUM",
 }
 
+# Overnight / benchmark rates: key -> (pattern, display name, wording used in research text).
+BENCHMARK_RATES = {
+    "SORA": (r"\bsora\b|singapore overnight rate average", "SORA", ["SORA", "Singapore Overnight Rate Average"]),
+    "TONA": (r"\btonar?\b|tokyo overnight average", "TONA", ["TONA", "TONAR", "Tokyo Overnight Average"]),
+    "SONIA": (r"\bsonia\b|sterling overnight index average", "SONIA", ["SONIA", "Sterling Overnight Index Average"]),
+    "ESTR": (r"€str|\be-?str\b|euro short-term rate", "€STR", ["€STR", "ESTR", "euro short-term rate"]),
+    "CORRA": (r"\bcorra\b|canadian overnight repo rate average", "CORRA", ["CORRA"]),
+    "HONIA": (r"\bhonia\b|hong kong overnight index average", "HONIA", ["HONIA"]),
+    "SARON": (r"\bsaron\b|swiss average rate overnight", "SARON", ["SARON"]),
+}
+
+
+def find_benchmarks(text: str) -> list[str]:
+    """Benchmark overnight rates named in free text, in order of appearance."""
+    hits = []
+    for key, (rx, _, _) in BENCHMARK_RATES.items():
+        m = re.search(rx, text, re.I)
+        if m:
+            hits.append((m.start(), key))
+    return [k for _, k in sorted(hits)]
+
+
 RATE_PATTERNS = [
     (re.compile(r"\bfed funds?\b|\bffr\b|federal funds", re.I), "FEDFUNDS"),
     (re.compile(r"\bsofr\b(?!\s*swap)", re.I), "SOFR"),
-    (re.compile(r"\bsora\b", re.I), "SORA"),
+] + [(re.compile(rx, re.I), key) for key, (rx, _, _) in BENCHMARK_RATES.items()] + [
     (re.compile(r"\b(\d{1,2})[- ]?(?:y|yr|year)[- ]?(?:us )?(?:treasury|ust)\b|\bust\s?(\d{1,2})y\b", re.I), "UST{n}Y"),
     (re.compile(r"\b(\d{1,2})[- ]?(?:y|yr|year)[- ]?sgs\b|\bsgs\s?(\d{1,2})y\b", re.I), "SGS{n}Y"),
     (re.compile(r"\b(\d{1,2})[- ]?(?:y|yr|year)[- ]?(?:sofr )?(?:swap )?rate\b", re.I), "SOFRSWAP{n}Y"),
@@ -89,6 +111,15 @@ RATE_ALIASES = {"FEDFUNDS": ["fed funds", "federal funds", "FFR", "Fed", "FOMC"]
 _TENOR_KEY = re.compile(r"(UST|SGS|SOFRSWAP)(\d{1,2})Y")
 
 
+def display_name(key: str) -> str:
+    """Readable name for an instrument key (ESTR -> €STR, USDSGD -> USD/SGD)."""
+    if key in BENCHMARK_RATES:
+        return BENCHMARK_RATES[key][1]
+    if len(key) == 6 and key[:3] in CURRENCIES and key[3:] in CURRENCIES:
+        return f"{key[:3]}/{key[3:]}"
+    return {"FEDFUNDS": "Fed funds rate"}.get(key, key)
+
+
 def instrument_aliases(key: str) -> list[str]:
     """Words that mark a sentence as being about an instrument key. Keys such as
     FEDFUNDS or UST10Y never appear in research text, so they need the wording
@@ -98,6 +129,8 @@ def instrument_aliases(key: str) -> list[str]:
         return [f"{a}{b}", f"{a}-{b}", f"{a}/{b}", f"{a} {b}"]
     if key in RATE_ALIASES:
         return [key] + RATE_ALIASES[key]
+    if key in BENCHMARK_RATES:
+        return BENCHMARK_RATES[key][2]
     m = _TENOR_KEY.fullmatch(key)
     if m:
         kind, n = m.groups()

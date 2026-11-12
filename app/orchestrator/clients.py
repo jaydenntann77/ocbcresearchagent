@@ -58,3 +58,32 @@ class ValidatorClient:
         if r.status_code != 200:
             raise ServiceError(f"validator returned HTTP {r.status_code}")
         return ValidationReport.model_validate(r.json())
+
+
+class ClientDataClient:
+    """Client-data service: identify the client in a question and log confirmed
+    interactions. Client lookups are optional - a failure never blocks an answer."""
+
+    def __init__(self, base: str | None = None, token: str | None = None):
+        self.base = base or config.service_url("clientdata")
+        self.token = token or config.TOKEN_ORCH_CLIENTS
+        self.client = httpx.Client(timeout=15.0)
+
+    def _h(self):
+        return {"Authorization": f"Bearer {self.token}"}
+
+    def identify(self, question: str) -> dict | None:
+        try:
+            r = self.client.post(f"{self.base}/v1/identify", json={"question": question}, headers=self._h())
+        except httpx.HTTPError:
+            return None
+        return r.json() if r.status_code == 200 else None
+
+    def log_interaction(self, payload: dict) -> dict:
+        try:
+            r = self.client.post(f"{self.base}/v1/interactions", json=payload, headers=self._h())
+        except httpx.HTTPError as exc:
+            raise ServiceError(f"client-data service unreachable ({type(exc).__name__})") from exc
+        if r.status_code != 200:
+            raise ServiceError(f"client-data service returned HTTP {r.status_code}")
+        return r.json()["interaction"]

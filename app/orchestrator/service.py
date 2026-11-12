@@ -4,8 +4,8 @@ talks to the user.
 Process policy (enforced by app.common.guard, installed before anything else):
   * no filesystem access to the corpus, raw PDFs, collections or models -
     only data/orchestrator (conversation history);
-  * loopback connections only to the specialist (8101) and validator (8102)
-    services; internet only to the model API when a credential is configured;
+  * loopback connections only to the specialist (8101), validator (8102) and
+    client-data (8105) services; internet only to the model API when a credential is configured;
   * retrieval / PDF / embedding modules cannot be imported;
   * no subprocesses.
 """
@@ -18,9 +18,9 @@ guard.install(guard.Policy(
     denied_roots=[config.DATA_DIR],
     allowed_roots=[config.ORCH_DIR],
     allowed_hosts={config.MODEL_API_HOST} if config.model_credentials_present() else set(),
-    allowed_loopback_ports={config.PORTS["research"], config.PORTS["validator"]},
+    allowed_loopback_ports={config.PORTS["research"], config.PORTS["validator"], config.PORTS["clientdata"]},
     blocked_modules=("fitz", "pymupdf", "fastembed", "onnxruntime", "rapidocr_onnxruntime", "app.research",
-                     "app.ingestion", "app.validator", "app.docs", "app.common.embedding"),
+                     "app.ingestion", "app.validator", "app.docs", "app.common.embedding", "app.clientdata"),
 ))
 
 import json  # noqa: E402
@@ -36,12 +36,13 @@ from app.common.schemas import SPECIALIST_LABELS  # noqa: E402
 from app.common.security import require_token  # noqa: E402
 from app.common.timeutil import fmt_dt, fmt_range, now_sgt  # noqa: E402
 from app.orchestrator import client_memory, composer, conversations, guardrails, llm, planner  # noqa: E402
-from app.orchestrator.clients import ResearchClient, ServiceError, ValidatorClient  # noqa: E402
+from app.orchestrator.clients import ClientDataClient, ResearchClient, ServiceError, ValidatorClient  # noqa: E402
 
 app = FastAPI(title="Conversation API", docs_url=None, redoc_url=None, openapi_url=None)
 auth = require_token(config.TOKEN_GATEWAY_ORCH)
 research = ResearchClient()
 validator = ValidatorClient()
+clientdata = ClientDataClient()
 SUGGESTIONS = [
     "What does the latest available research say about USD/SGD through 2027?",
     "Summarize OCBC's published view on SGD interest rates.",
@@ -160,6 +161,26 @@ def answer_question(question: str, state: dict, emit) -> tuple[dict, dict]:
         new_state["last_client"] = {"name": entry["name"], "company": entry["company"]}
     return answer, new_state
 
+def identify_client(question: str, state: dict, emit) -> dict | None:
+    """Which client the question is about. Falls back to the client confirmed earlier
+    in this conversation (marked inherited) when the question names nobody."""
+    emit("Identifying the client")
+    found = clientdata.identify(question)
+    last = state.get("client")
+    if found and found["status"] == "ambiguous" and last:
+        # "Jimmy" after Jimmy Tan was confirmed in this conversation means Jimmy Tan.
+        same = [c for c in found["candidates"] if c["client_id"] == last["client_id"]
+                and (c.get("contact_id") == last.get("contact_id") or not c.get("contact_id"))]
+        if len(same) == 1:
+            found = found | {"status": "match", "candidates": same}
+    if found and found["status"] != "none":
+        return found | {"inherited": False, "logged": None, "declined": False}
+    if last:
+        return {"status": "match", "candidates": [last], "research_question": question, "mention": "",
+                "inherited": True, "logged": None, "declined": False}
+    return None
+
+
 @app.get("/v1/health")
 def health():
     return {"ok": True}
@@ -212,7 +233,20 @@ def chat(payload: dict = Body(...), x_ra_session: str = Header(default="local"))
 
     def work():
         try:
-            answer, state = answer_question(question, conversations.get_state(cid), emit)
+            prior = conversations.get_state(cid)
+            client = identify_client(question, prior, emit)
+            # Research sees the question with the client's name removed.
+            research_q = (client or {}).get("research_question") or question
+            answer, state = answer_question(research_q, prior, emit)
+            answer["question"] = question
+            if client:
+                answer["client"] = client
+                if client["status"] == "match":
+                    state["client"] = client["candidates"][0]
+                elif prior.get("client"):
+                    state["client"] = prior["client"]
+            elif prior.get("client"):
+                state["client"] = prior["client"]
             conversations.set_state(cid, state)
         except Exception as exc:  # noqa: BLE001
             answer = _simple(question, "error", f"Something went wrong while preparing the answer "
@@ -232,6 +266,46 @@ def chat(payload: dict = Body(...), x_ra_session: str = Header(default="local"))
             yield f"data: {json.dumps(item)}\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
+
+
+@app.post("/v1/conversations/{cid}/messages/{mid}/client-log", dependencies=[Depends(auth)])
+def client_log(cid: str, mid: str, payload: dict = Body(...), x_ra_session: str = Header(default="local")):
+    """The user's answer to "log this interaction to <client>?". Only a client offered
+    on that answer can be chosen; nothing is stored unless the user confirms."""
+    found = conversations.get_message(cid, mid, x_ra_session)
+    if not found:
+        raise HTTPException(404, "message not found")
+    answer, question = found
+    client = answer.get("client")
+    if not client:
+        raise HTTPException(400, "no client was identified for this answer")
+    if client.get("logged"):
+        return {"client": client}
+    if payload.get("decline"):
+        client["declined"] = True
+    else:
+        pick = next((c for c in client["candidates"] if c["client_id"] == payload.get("client_id")
+                     and c.get("contact_id") == payload.get("contact_id")), None)
+        if not pick:
+            raise HTTPException(400, "choose one of the clients offered for this answer")
+        summary = " ".join(c.get("text", "") for c in (answer.get("direct") or [])[:2]) or answer.get("message") or ""
+        plan = answer.get("plan") or {}
+        try:
+            row = clientdata.log_interaction({
+                "client_id": pick["client_id"], "contact_id": pick.get("contact_id"), "question": question,
+                "instruments": plan.get("instruments") or [], "topic": plan.get("lead") or "",
+                "answer_summary": summary, "conversation_id": cid, "logged_by": x_ra_session})
+        except ServiceError as exc:
+            raise HTTPException(503, f"Could not save to the client profile ({exc}).")
+        client.update(logged={"interaction_id": row["interaction_id"], "at": row["asked_at"]}, declined=False,
+                      status="match", candidates=[pick])
+        state = conversations.get_state(cid)
+        state["client"] = pick
+        conversations.set_state(cid, state)
+    answer["client"] = client
+    conversations.update_answer(cid, mid, answer)
+    return {"client": client}
+
 
 @app.post("/v1/memory/confirm", dependencies=[Depends(auth)])
 def memory_confirm(payload: dict = Body(...)):
