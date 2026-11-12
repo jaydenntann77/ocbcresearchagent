@@ -235,7 +235,8 @@ def compose(question: str, plan, responses: list[SpecialistResponse], validator,
         fv = forecast_meta[r.record_id]
         ev = evidence.get(r.evidence_id)
         table.append({
-            "instrument": r.instrument_label, "horizon": r.horizon_label, "horizon_kind": fv.horizon_kind,
+            "instrument": r.instrument_label, "instrument_key": r.instrument_key, "horizon": r.horizon_label,
+            "horizon_kind": fv.horizon_kind,
             "value": r.value, "unit": r.unit, "quotation": r.instrument_label if not r.unit else None,
             "scenario": r.scenario or "Baseline", "publication_date": r.publication_date,
             "publication_label": _d(r.publication_date), "data_date": fv.data_date,

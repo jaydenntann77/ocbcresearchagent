@@ -25,6 +25,13 @@ out["unknown_client"] = c.post("/v1/interactions", json={"client_id": "C999", "q
 out["log"] = c.post("/v1/interactions", json={"client_id": "C001", "contact_id": "P001", "question": "USD/SGD?",
                                               "instruments": ["USDSGD"], "topic": "FX"}, headers=h).json()
 out["profile"] = c.get("/v1/clients/C001", headers=h).json()
+jimmys = out["identify_jimmy"] = c.post("/v1/identify", json={"question": "Jimmy asks for USD/SGD"}, headers=h).json()
+out["pick_b"] = c.post("/v1/resolve-pick", json={"text": "b", "candidates": jimmys["candidates"]}, headers=h).json()
+out["pick_q"] = c.post("/v1/resolve-pick", json={"text": "and what about EUR/USD next year?",
+                                                 "candidates": jimmys["candidates"]}, headers=h).json()
+out["ctx_pinnacle"] = c.post("/v1/clients/C008/trade-context", json={"pairs": ["sgd/usd"]}, headers=h).json()
+out["ctx_never"] = c.post("/v1/clients/C003/trade-context", json={"pairs": ["USDSGD"]}, headers=h).json()
+out["ctx_unknown"] = c.post("/v1/clients/C999/trade-context", json={"pairs": ["USDSGD"]}, headers=h).status_code
 print(json.dumps(out))
 """
 
@@ -44,3 +51,11 @@ def test_client_service_api(tmp_path):
     assert out["profile"]["client"]["counterpart_name"] == "Harbourline Logistics Pte Ltd"
     assert any(i["interaction_id"] == logged["interaction_id"] for i in out["profile"]["interactions"])
     assert (tmp_path / "clientdata" / "clientdata.db").exists()  # built on first start
+    assert out["pick_b"]["pick"] == out["identify_jimmy"]["candidates"][1]
+    assert out["pick_q"]["pick"] is None
+    pin = out["ctx_pinnacle"]["contexts"][0]
+    assert pin["pair"] == "USD/SGD" and pin["kind"] == "open"
+    assert {"label": "Net", "text": "SELL USD 38.8m"} in pin["lines"]
+    assert any(r["note"] == "offsets BUY USD 47.0m (3 Jul)" for r in pin["trades"])
+    assert out["ctx_never"]["contexts"][0]["lines"] == [{"label": None, "text": "No past USD/SGD trades on record."}]
+    assert out["ctx_unknown"] == 404

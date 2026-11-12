@@ -6,7 +6,7 @@ import threading
 import uuid
 from pathlib import Path
 
-from app.clientdata import generate, schema
+from app.clientdata import generate, patterns, schema
 from app.common.timeutil import now_sgt
 
 _lock = threading.Lock()
@@ -19,6 +19,9 @@ class Store:
             generate.write_sqlite(generate.generate(), path)
         with self._conn() as conn:
             conn.executescript(schema.ddl())
+            # T01-T04 are demo-mode only (loaded from dummy_data/patterns/); remove the copies an
+            # earlier version wrote into this database. Asks a user logged are kept.
+            patterns.purge_legacy(conn)
 
     def _conn(self):
         conn = sqlite3.connect(self.path, check_same_thread=False)
@@ -44,6 +47,10 @@ class Store:
     def contact(self, contact_id: str) -> dict | None:
         rows = self._all("SELECT * FROM contacts WHERE contact_id=?", (contact_id,))
         return rows[0] if rows else None
+
+    def trades(self, sibs_cif: str) -> list[dict]:
+        """Every trade booked to one client (by SIBS CIF)."""
+        return self._all("SELECT * FROM trades WHERE sibs_cif=? ORDER BY trn_date, trn_internal", (sibs_cif,))
 
     def interactions(self, client_id: str, limit: int = 20) -> list[dict]:
         return self._all("SELECT * FROM interactions WHERE client_id=? ORDER BY asked_at DESC LIMIT ?",

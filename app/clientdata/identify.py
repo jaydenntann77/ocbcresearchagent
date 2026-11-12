@@ -148,6 +148,44 @@ def identify(question: str, clients: list[dict], contacts: list[dict]) -> Identi
     return Identification(status, shown, strip_mentions(question, spans), mention)
 
 
+_LETTER_RE = re.compile(r"^\s*(?:option\s+)?\(?([a-z])\)?[.)]?\s*$", re.I)
+_PICK_FILLER = {"it", "its", "it's", "is", "the", "option", "for", "client", "company", "pick", "choose", "i",
+                "mean", "meant", "that", "one", "please", "pls", "with", "at", "from", "of", "use", "go", "s",
+                "pte", "ltd", "sdn", "bhd", "holdings", "group", "co", "inc", "limited", "trust", "plc"}
+
+
+def resolve_pick(text: str, candidates: list[dict], clients: list[dict], contacts: list[dict]) -> dict | None:
+    """The user's choice after "which client?": a letter ("b", "b)", "option b") picks that
+    listed match; a company (or person) name picks the one client it names - preferring a
+    listed match, so "Meridian" picks Meridian Foods when only that Meridian was listed.
+    Anything that reads like a new question (more than one other word) is not a pick."""
+    m = _LETTER_RE.match(text or "")
+    if m:
+        i = ord(m.group(1).lower()) - ord("a")
+        return candidates[i] if 0 <= i < len(candidates) else None
+    r = identify(text or "", clients, contacts)
+    if r.status == "none":
+        return None
+    matched = {w for c in r.candidates for phrase in c.matched_on for w in _norm(phrase).split()}
+    if len(set(_norm(text).split()) - matched - _PICK_FILLER) > 1:
+        return None
+    listed_ids = {c["client_id"] for c in candidates}
+    hits = [c for c in r.candidates if c.client_id in listed_ids]
+    ids = {c.client_id for c in hits}
+    if len(ids) != 1:
+        if r.status != "match":
+            return None
+        hits, ids = r.candidates, {r.candidates[0].client_id}
+    cid = next(iter(ids))
+    named = [c for c in hits if c.contact_id]
+    listed = [c for c in candidates if c["client_id"] == cid]
+    if named and len(named) == 1:      # a person was named too: that person
+        return next((c for c in listed if c.get("contact_id") == named[0].contact_id), named[0].to_dict())
+    if len(listed) == 1:               # the one listed match at that company keeps its contact
+        return listed[0]
+    return Candidate(cid, next(c["counterpart_name"] for c in clients if c["client_id"] == cid)).to_dict()
+
+
 def strip_mentions(question: str, spans: list[tuple[int, int]]) -> str:
     merged: list[list[int]] = []
     for s, e in sorted(spans):

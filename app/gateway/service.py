@@ -2,8 +2,8 @@
 
 Serves the frontend and proxies a fixed set of routes:
   /api/chat, /api/meta, /api/conversations*  -> conversation API (orchestrator),
-                                               incl. logging a confirmed client interaction
-  /api/chat, /api/meta, /api/conversations*  -> conversation API (orchestrator)
+                                               incl. picking the client and logging a confirmed
+                                               client interaction
   /api/memory/confirm                        -> client memory save (orchestrator)
   /api/docs/*                                -> document viewer
   /api/admin/*                               -> ingestion admin
@@ -208,11 +208,21 @@ async def convs(request: Request, cid: str | None = None):
     return await _proxy(request, f"{ORCH}/v1/conversations" + (f"/{cid}" if cid else ""), config.TOKEN_GATEWAY_ORCH)
 
 
-@app.post("/api/conversations/{cid}/messages/{mid}/client-log")
-async def client_log(request: Request, cid: str, mid: str):
+@app.api_route("/api/demo", methods=["GET", "POST"])
+async def demo(request: Request):
+    """Demo mode (pattern clients T01-T04). Local only: switching it is refused when hosted."""
+    if config.PUBLIC_MODE and request.method != "GET":
+        raise HTTPException(403, "Demo mode is not available on the hosted demo.")
+    return await _proxy(request, f"{ORCH}/v1/demo", config.TOKEN_GATEWAY_ORCH)
+
+
+@app.post("/api/conversations/{cid}/messages/{mid}/{action}")
+async def client_action(request: Request, cid: str, mid: str, action: str):
+    if action not in ("client-log", "client-pick"):
+        raise HTTPException(404, "not found")
     if not (re.fullmatch(r"c-[a-f0-9]{12}", cid) and re.fullmatch(r"m-[a-f0-9]{12}", mid)):
         raise HTTPException(400, "invalid id")
-    return await _proxy(request, f"{ORCH}/v1/conversations/{cid}/messages/{mid}/client-log", config.TOKEN_GATEWAY_ORCH)
+    return await _proxy(request, f"{ORCH}/v1/conversations/{cid}/messages/{mid}/{action}", config.TOKEN_GATEWAY_ORCH)
 
 
 @app.get("/api/docs/{path:path}")

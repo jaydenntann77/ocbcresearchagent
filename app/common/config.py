@@ -95,6 +95,9 @@ MODEL_EFFORT = env("RA_MODEL_EFFORT", "medium")
 # (Fed -> FOMC, Fed funds). Set RA_QUERY_REWRITE=0 to turn it off.
 QUERY_MODEL = env("RA_QUERY_MODEL", "claude-haiku-5-5")
 QUERY_REWRITE = env("RA_QUERY_REWRITE", "1") != "0"
+# Client-box trade note: Claude Haiku may reword the computed lines and ideas (each checked
+# line by line; the research link is never reworded). Needs a credential; RA_CLIENT_NOTE_MODEL=0 turns it off.
+CLIENT_NOTE_MODEL = env("RA_CLIENT_NOTE_MODEL", "1") != "0"
 MODEL_API_HOST = "api.anthropic.com"
 
 

@@ -277,6 +277,61 @@ function freshBadge(fr) {
   return el("span", { class: cls, title: fr.rule, text: fr.label + age });
 }
 
+// One line under the executive summary: how many OCBC reports the answer cites, when they were
+// published, how old they are, and their freshness labels as counts. Built from the cited sources only;
+// several excerpts from one report count once. Text nodes only.
+const SHORT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function shortRange(isoDates) {
+  const ds = [...isoDates].sort().map((s) => { const [y, m, d] = s.split("-").map(Number); return { y, m, d }; });
+  const a = ds[0], b = ds[ds.length - 1];
+  const full = (x) => `${x.d} ${SHORT_MONTHS[x.m - 1]} ${x.y}`;
+  if (a.y === b.y && a.m === b.m && a.d === b.d) return full(b);
+  if (a.y === b.y && a.m === b.m) return `${a.d}–${b.d} ${SHORT_MONTHS[b.m - 1]} ${b.y}`;
+  if (a.y === b.y) return `${a.d} ${SHORT_MONTHS[a.m - 1]} – ${full(b)}`;
+  return `${full(a)} – ${full(b)}`;
+}
+// {text, counts} for a list of cited sources, or null when there are none.
+function sourcesSummaryData(sources) {
+  const reports = new Map();
+  for (const s of sources || []) {
+    const key = s.doc_id || s.title || `n${s.n}`;
+    if (!reports.has(key)) reports.set(key, s);
+  }
+  if (!reports.size) return null;
+  const docs = [...reports.values()];
+  const dated = docs.filter((s) => s.freshness && s.freshness.label !== "Date uncertain" && s.publication_date);
+  const parts = [`Based on ${docs.length} OCBC report${docs.length === 1 ? "" : "s"}`];
+  if (dated.length) {
+    const ages = dated.map((s) => s.freshness.age_days).filter((x) => typeof x === "number");
+    const lo = ages.length ? Math.min(...ages) : null, hi = ages.length ? Math.max(...ages) : null;
+    if (hi === 0) {
+      parts.push("published today");
+    } else {
+      parts.push(`published ${shortRange(dated.map((s) => s.publication_date))}`);
+      if (hi !== null) parts.push(lo === hi ? `${hi} day${hi === 1 ? "" : "s"} old` : `${lo}–${hi} days old`);
+    }
+  }
+  const tally = new Map();
+  for (const s of docs) {
+    const lab = (s.freshness && s.freshness.label) || "Date uncertain";
+    tally.set(lab, (tally.get(lab) || 0) + 1);
+  }
+  const counts = ["Recent", "Older", "Stale", "Date uncertain"].filter((l) => tally.get(l)).map((l) => [l, tally.get(l)]);
+  return { text: parts.join(" · "), counts };
+}
+// Footer line at the end of the research answer, with the freshness labels as count badges.
+function sourcesSummary(a) {
+  const d = sourcesSummaryData(a.sources);
+  if (!d) return null;
+  return el("div", { class: "sources-summary" }, el("span", { text: d.text }),
+    d.counts.map(([l, n]) => el("span", { class: `badge fresh-${l.split(" ")[0]}`, text: `${n} ${l}` })));
+}
+// Same line as plain text for "Copy answer": "... · 3–7 days old (2 Recent, 2 Older)".
+function sourcesSummaryText(sources) {
+  const d = sourcesSummaryData(sources);
+  return d ? `${d.text}${d.counts.length ? ` (${d.counts.map(([l, n]) => `${n} ${l}`).join(", ")})` : ""}` : null;
+}
+
 function claimList(answer, items, cls = "") {
   const sourceBy = new Map(answer.sources.map((s) => [s.n, s]));
   return el("ul", { class: "claims" }, items.map((c) => {
@@ -387,7 +442,6 @@ function renderAnswer(a, mid) {
     el("span", { class: "spacer" }),
     el("span", { class: "badge", text: `Generated ${a.generated_label}` }));
   const body = el("div", { class: "answer-body" });
-  if (a.client) body.append(clientBar(a, mid, state.cid));
   for (const n of a.notices || []) {
     body.append(el("div", { class: `notice ${n.kind}` }, svg(n.kind === "web" ? "globe" : "shield"), el("div", { text: n.text })));
   }
@@ -464,8 +518,15 @@ function renderAnswer(a, mid) {
     foot.append(el("button", { class: "btn btn-ghost", type: "button", onclick: () => copyText(answerMarkdown(a), "Answer copied") }, svg("copy"), "Copy answer"));
     if (a.table && a.table.length) foot.append(el("button", { class: "btn btn-ghost", type: "button", onclick: () => copyText(tableMarkdown(a), "Table copied") }, svg("copy"), "Copy table"));
   }
-  if (a.pending_memory) body.append(memoryCard(a.pending_memory));
-  return el("article", { class: "answer" }, head, body, foot.childNodes.length ? foot : null);
+  // The research answer comes first; everything about the client (picker, client line, trade
+  // note, client memory) sits at the bottom, after the footer.
+  const clientBox = el("div", { class: "answer-client" },
+    a.client ? clientBar(a, mid, state.cid) : null,
+    a.pending_memory ? memoryCard(a.pending_memory) : null);
+  const sourcesFooter = sourcesSummary(a);   // null when the answer cites no sources
+  return el("article", { class: "answer" }, head, body, foot.childNodes.length ? foot : null,
+    sourcesFooter ? el("div", { class: "answer-sources" }, sourcesFooter) : null,
+    clientBox.childNodes.length ? clientBox : null);
 }
 
 // ------------------------------------------------------------------ client identification
@@ -473,29 +534,76 @@ function who(c) {
   return c.contact_name ? `${c.contact_name}${c.contact_title ? ` (${c.contact_title})` : ""}, ${c.client_name}` : c.client_name;
 }
 
+// Picker label: company first, then the person.
+function pickLabel(c, i) {
+  const person = c.contact_name ? ` - ${c.contact_name}${c.contact_title ? ` (${c.contact_title})` : ""}` : "";
+  return `${String.fromCharCode(97 + i)}) ${c.client_name}${person}`;
+}
+
+// Internal client data: how the client's own trades in the asked pair relate to this ask.
+// Shown only in the client box, never in the research answer or its copy text.
+function tradeContext(ctxs) {
+  if (!ctxs || !ctxs.length) return null;
+  // Everything is built from text nodes (el() "text" / string children); no innerHTML.
+  const noteLine = (l) => (typeof l === "string" ? el("div", { class: "trade-line", text: l })  // answers saved before labels
+    : el("div", { class: "trade-line" }, l.label ? el("strong", { text: `${l.label}: ` }) : null, l.text));
+  const section = (title, ...body) => el("div", { class: "more-section" }, el("h5", { text: title }), ...body);
+  const bullets = (xs) => el("ul", { class: "more-list" }, xs.map((t) => el("li", { text: t })));
+  const tradeTable = (x) => el("div", {},
+    el("div", { class: "muted small", text: x.count_label }),
+    el("div", { class: "trade-scroll" }, el("table", { class: "fc trades" },
+      el("thead", {}, el("tr", {}, ["Trade date", "BUY/SELL", "Notional", "Product", "Maturity", "Status", "Note"].map((h) => el("th", { text: h })))),
+      el("tbody", {}, x.trades.map((t) => el("tr", { class: t.open ? "open" : "closed" },
+        [t.trade_date, t.side, t.notional, t.product, t.maturity, t.status, t.note || ""].map((v) => el("td", { text: v }))))))));
+  const more = (x) => {
+    const parts = [
+      (x.ideas || []).length ? section("Ideas", bullets(x.ideas.map((i) => i.text))) : null,
+      x.research_link ? section("Research link", el("div", { class: "trade-line" },
+        el("strong", { text: `${x.research_link.label}: ` }), x.research_link.text)) : null,
+      (x.offsets || []).length ? section("Offsets", bullets(x.offsets)) : null,
+      (x.rolls || []).length ? section("Rolls", bullets(x.rolls)) : null,
+      (x.trades || []).length ? section("Trades", tradeTable(x)) : null,
+    ].filter(Boolean);
+    return parts.length ? el("details", { class: "trade-more" }, el("summary", { text: "More details & ideas" }), parts) : null;
+  };
+  return el("div", { class: "trade-ctx" }, ctxs.map((x) => el("div", { class: "trade-pair" },
+    el("div", { class: "trade-head" }, el("span", { class: "badge", text: "Internal client data" }),
+      el("span", { class: "muted", text: `as of ${x.as_of}` })),
+    (x.lines || []).map(noteLine),
+    x.text_source && x.text_source !== "rules" ? el("div", { class: "muted small", text: "Some wording by Claude Haiku from the computed facts." }) : null,
+    more(x))));
+}
+
+const clientBars = new Map();  // message id -> redraw, so a typed pick can update the earlier picker
+
 function clientBar(a, mid, cid) {
   const box = el("div", { class: "client-bar" });
   const draw = (client) => {
     box.replaceChildren();
-    const send = async (body, btns) => {
+    const post = async (action, body, btns) => {
       btns.forEach((b) => (b.disabled = true));
       try {
-        const res = await api(`/api/conversations/${cid}/messages/${mid}/client-log`, { method: "POST", body: JSON.stringify(body) });
+        const res = await api(`/api/conversations/${cid}/messages/${mid}/${action}`, { method: "POST", body: JSON.stringify(body) });
         a.client = res.client;
         draw(res.client);
         if (res.client.logged) toast("Saved to the client profile");
       } catch (e) {
         btns.forEach((b) => (b.disabled = false));
-        toast(`Not saved: ${e.message}`);
+        toast(`${action === "client-log" ? "Not saved" : "Not picked"}: ${e.message}`);
       }
     };
+    const ctx = tradeContext(client.trade_context);
     if (client.logged) {
       const c = client.candidates[0];
-      box.append(el("div", { class: "client-line" }, svg("check"), el("span", {}, "Logged to ", el("b", { text: c.client_name }), c.contact_name ? ` · ${c.contact_name}` : "")));
+      box.append(el("div", { class: "client-line" }, svg("check"), el("span", {}, "Logged to ", el("b", { text: c.client_name }), c.contact_name ? ` · ${c.contact_name}` : "")), ctx);
       return;
     }
     if (client.declined) {
-      box.append(el("div", { class: "client-line muted", text: "Not logged to a client profile." }));
+      box.append(el("div", { class: "client-line muted", text: "Not logged to a client profile." }), ctx);
+      return;
+    }
+    if (client.chosen_later) {
+      box.append(el("div", { class: "client-line muted" }, "Client chosen in the next message: ", el("b", { text: who(client.candidates[0]) })));
       return;
     }
     if (!mid || !cid) return;
@@ -503,22 +611,37 @@ function clientBar(a, mid, cid) {
     if (client.status === "match") {
       const c = client.candidates[0];
       const yes = el("button", { class: "btn btn-primary", type: "button", text: "Log to profile" });
-      yes.onclick = () => send({ client_id: c.client_id, contact_id: c.contact_id || null }, [yes, no]);
-      no.onclick = () => send({ decline: true }, [yes, no]);
+      yes.onclick = () => post("client-log", { client_id: c.client_id, contact_id: c.contact_id || null }, [yes, no]);
+      no.onclick = () => post("client-log", { decline: true }, [yes, no]);
       box.append(el("div", { class: "client-line" },
         el("span", { class: "badge info", text: client.inherited ? "Same client" : "Client" }),
-        el("span", {}, el("b", { text: who(c) }))),
+        el("span", {}, el("b", { text: who(c) })),
+        client.for_question ? el("span", { class: "muted", text: `for "${client.for_question}"` }) : null),
+        ctx,
         el("div", { class: "client-ask" }, el("span", { text: "Log this question to the client's profile?" }), yes, no));
     } else {
-      const picks = client.candidates.map((c) => el("button", { class: "btn", type: "button", text: who(c) }));
-      picks.forEach((b, i) => (b.onclick = () => send({ client_id: client.candidates[i].client_id, contact_id: client.candidates[i].contact_id || null }, [...picks, no])));
-      no.onclick = () => send({ decline: true }, [...picks, no]);
+      const picks = client.candidates.map((c, i) => el("button", { class: "btn pick", type: "button", text: pickLabel(c, i) }));
+      const input = el("input", { type: "text", class: "pick-input", placeholder: "or type the company name", maxlength: "200", "aria-label": "Company name" });
+      const go = el("button", { class: "btn", type: "button", text: "Use" });
+      const all = [...picks, go, no];
+      picks.forEach((b, i) => (b.onclick = () => post("client-pick", { client_id: client.candidates[i].client_id, contact_id: client.candidates[i].contact_id || null }, all)));
+      go.onclick = () => { if (input.value.trim()) post("client-pick", { text: input.value.trim() }, all); };
+      input.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); go.onclick(); } };
+      no.onclick = () => post("client-log", { decline: true }, all);
       box.append(el("div", { class: "client-line" }, el("span", { class: "badge warn", text: "Which client?" }),
-        el("span", { text: `"${client.mention}" matches more than one client. Choose one to log this question to their profile.` })),
-        el("div", { class: "client-ask" }, picks, no));
+        el("span", { text: `"${client.mention}" matches more than one client. Pick one, or reply with its letter or company name.` })),
+        el("div", { class: "pick-list" }, picks),
+        el("div", { class: "client-ask" }, input, go, no));
     }
   };
   draw(a.client);
+  if (mid) clientBars.set(mid, { a, draw });
+  // A reply such as "b" resolved an earlier picker: show that one as chosen.
+  const prev = a.client.for_message && clientBars.get(a.client.for_message);
+  if (prev && prev.a.client && prev.a.client.status === "ambiguous") {
+    prev.a.client = { ...prev.a.client, status: "match", candidates: a.client.candidates, chosen_later: true };
+    prev.draw(prev.a.client);
+  }
   return box;
 }
 
@@ -613,6 +736,8 @@ function answerMarkdown(a) {
   const used = citedIn([...a.direct, ...a.table, ...implication]);
   out.push("Sources:", ...sourceLines(a, used));
   out.push("", "Source: OCBC Group Research. Consolidation of published research; not investment advice.");
+  const basedOn = sourcesSummaryText(a.sources.filter((s) => used.has(s.n)));
+  if (basedOn) out.push("", basedOn);
   return out.join("\n");
 }
 async function copyText(text, msg) {
@@ -825,6 +950,36 @@ function showLogin(message) {
   input.focus();
 }
 
+// ------------------------------------------------------------------ demo mode (pattern clients T01-T04)
+// Off at every restart of run.py; the server decides availability (never on the hosted demo).
+function renderDemo(d) {
+  const btn = $("demoToggle"), banner = $("demoBanner");
+  const on = !!(d && d.enabled);
+  btn.hidden = !(d && d.available);
+  btn.textContent = `Demo mode: ${on ? "ON" : "OFF"}`;
+  btn.setAttribute("aria-pressed", String(on));
+  btn.classList.toggle("on", on);
+  banner.hidden = !(on && d.available);
+}
+
+async function loadDemo() {
+  try { renderDemo(await api("/api/demo")); } catch (_) { renderDemo(null); }
+}
+
+$("demoToggle").addEventListener("click", async () => {
+  const btn = $("demoToggle");
+  btn.disabled = true;
+  try {
+    const d = await api("/api/demo", { method: "POST", body: JSON.stringify({ enabled: btn.getAttribute("aria-pressed") !== "true" }) });
+    renderDemo(d);
+    toast(d.enabled ? "Demo mode on: pattern clients loaded" : "Demo mode off: pattern clients hidden");
+  } catch (e) {
+    toast(`Demo mode not changed: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 (async function init() {
   try {
     const sess = await api("/api/session");
@@ -836,6 +991,7 @@ function showLogin(message) {
     }
   } catch (_) { /* gateway unreachable: meta will show offline */ }
   await loadMeta();
+  if (!(state.session && state.session.public_mode)) loadDemo();
   renderEmpty();
   loadHistory();
   route(location.pathname === "/admin" ? "admin" : "chat", false);

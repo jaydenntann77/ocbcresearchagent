@@ -55,6 +55,17 @@ RATE_PATTERNS = [
 ]
 
 
+def pair_key(text: str) -> tuple[str, str] | None:
+    """Direction-free pair key: 'sgd/usd', 'SGD/USD', 'usdsgd', 'USD-SGD' -> ('SGD', 'USD')."""
+    t = re.sub(r"[^A-Za-z]", "", text or "").upper()
+    if len(t) != 6:
+        return None
+    a, b = t[:3], t[3:]
+    if a == b or a not in CURRENCIES or b not in CURRENCIES:
+        return None
+    return (a, b) if a < b else (b, a)
+
+
 def normalise_pair(text: str) -> str | None:
     """'USD-SGD', 'USD/SGD', 'USDSGD', 'usd sgd' -> 'USDSGD' (direction preserved)."""
     t = text.strip().upper()
