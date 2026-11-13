@@ -81,6 +81,30 @@ def client_profile(client_id: str):
     return {"client": c, "contacts": book.contacts(client_id), "interactions": book.interactions(client_id)}
 
 
+@app.get("/v1/clients/{client_id}/asks", dependencies=[Depends(auth)])
+def client_asks(client_id: str, contact_id: str | None = None, limit: int = 3):
+    """Earlier logged asks from this contact (the whole client when no contact is known), newest
+    first, with the client's name taken out of each question. Keyed by contact ID, so two people
+    who share a first name at different clients never share a history."""
+    c = book.client(client_id) if ID_RE.match(client_id) else None
+    if not c:
+        raise HTTPException(404, "client not found")
+    if contact_id and not ID_RE.match(contact_id):
+        raise HTTPException(400, "invalid contact id")
+    rows = [r for r in book.interactions(client_id, limit=1000) if not contact_id or r.get("contact_id") == contact_id]
+    clients, contacts = book.clients(), book.contacts()
+    items = []
+    for r in rows[:max(1, min(limit, 10))]:
+        q = r.get("question") or ""
+        try:
+            q = identify(q, clients, contacts).research_question or q
+        except Exception:  # noqa: BLE001 - fall back to the question as logged
+            pass
+        items.append({"asked_at": r.get("asked_at"), "question": q[:200], "topic": r.get("topic") or "",
+                      "instruments": r.get("instruments") or ""})
+    return {"count": len(rows), "items": items}
+
+
 @app.post("/v1/resolve-pick", dependencies=[Depends(auth)])
 def pick(payload: dict = Body(...)):
     text = (payload.get("text") or "").strip()

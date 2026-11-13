@@ -536,7 +536,8 @@ function renderAnswer(a, mid) {
   // note, client memory) sits at the bottom, after the footer.
   const clientBox = el("div", { class: "answer-client" },
     a.client ? clientBar(a, mid, state.cid) : null,
-    a.pending_memory ? memoryCard(a.pending_memory) : null);
+    // The older first-name-only memory card only when the client box has not identified anyone.
+    a.pending_memory && !a.client ? memoryCard(a.pending_memory) : null);
   const sourcesFooter = sourcesSummary(a);   // null when the answer cites no sources
   return el("article", { class: "answer" }, head, body, foot.childNodes.length ? foot : null,
     sourcesFooter ? el("div", { class: "answer-sources" }, sourcesFooter) : null,
@@ -622,6 +623,26 @@ function tradeContext(ctxs) {
 
 const clientBars = new Map();  // message id -> redraw, so a typed pick can update the earlier picker
 
+function askedLabel(s) {
+  // "2026-11-13T14:44:00" (SGT, as logged) -> "13 Nov, 14:44"
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/.exec(s || "");
+  if (!m) return s || "";
+  const mon = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][+m[2] - 1];
+  return `${+m[3]} ${mon}${m[4] ? `, ${m[4]}:${m[5]}` : ""}`;
+}
+
+function pastAsks(client) {
+  const p = client.past_asks;
+  if (!p || !p.count) return null;
+  const c = client.candidates[0] || {};
+  const name = c.contact_name ? `${c.contact_name} (${c.client_name})` : c.client_name;
+  return el("div", { class: "past-asks" },
+    el("div", { class: "client-line" }, el("span", { class: "badge", text: "Client memory" }),
+      el("span", { text: `${p.count} previous ask${p.count === 1 ? "" : "s"} from ${name}` })),
+    el("ul", { class: "past-list" }, (p.items || []).map((x) =>
+      el("li", {}, el("span", { class: "muted", text: `${askedLabel(x.asked_at)} · ` }), x.question))));
+}
+
 function clientBar(a, mid, cid) {
   const box = el("div", { class: "client-bar" });
   const draw = (client) => {
@@ -639,13 +660,16 @@ function clientBar(a, mid, cid) {
       }
     };
     const ctx = tradeContext(client.trade_context);
+    const past = client.status === "match" ? pastAsks(client) : null;
+    // Native append() would print a missing section as the text "null", so drop empties first.
+    const add = (...parts) => box.append(...parts.filter(Boolean));
     if (client.logged) {
       const c = client.candidates[0];
-      box.append(el("div", { class: "client-line" }, svg("check"), el("span", {}, "Logged to ", el("b", { text: c.client_name }), c.contact_name ? ` · ${c.contact_name}` : "")), ctx);
+      add(el("div", { class: "client-line" }, svg("check"), el("span", {}, "Logged to ", el("b", { text: c.client_name }), c.contact_name ? ` · ${c.contact_name}` : "")), past, ctx);
       return;
     }
     if (client.declined) {
-      box.append(el("div", { class: "client-line muted", text: "Not logged to a client profile." }), ctx);
+      add(el("div", { class: "client-line muted", text: "Not logged to a client profile." }), past, ctx);
       return;
     }
     if (client.chosen_later) {
@@ -659,10 +683,11 @@ function clientBar(a, mid, cid) {
       const yes = el("button", { class: "btn btn-primary", type: "button", text: "Log to profile" });
       yes.onclick = () => post("client-log", { client_id: c.client_id, contact_id: c.contact_id || null }, [yes, no]);
       no.onclick = () => post("client-log", { decline: true }, [yes, no]);
-      box.append(el("div", { class: "client-line" },
+      add(el("div", { class: "client-line" },
         el("span", { class: "badge info", text: client.inherited ? "Same client" : "Client" }),
         el("span", {}, el("b", { text: who(c) })),
         client.for_question ? el("span", { class: "muted", text: `for "${client.for_question}"` }) : null),
+        past,
         ctx,
         el("div", { class: "client-ask" }, el("span", { text: "Log this question to the client's profile?" }), yes, no));
     } else {

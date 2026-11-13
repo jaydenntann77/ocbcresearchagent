@@ -207,6 +207,15 @@ def attach_trade_context(client: dict, answer: dict, question: str, emit) -> Non
                                    for c in contexts]
 
 
+def attach_past_asks(client: dict) -> None:
+    """Earlier logged asks from the confirmed contact, for the client box. Looked up before this
+    question is logged, so they are the contact's previous asks."""
+    c = client["candidates"][0]
+    past = clientdata.past_asks(c["client_id"], c.get("contact_id"))
+    if past and past.get("count"):
+        client["past_asks"] = past
+
+
 def pick_reply(cid: str, question: str, state: dict, pending: dict, pick: dict, owner: str, emit):
     """The next message answered "which client?" ("b", "Meridian Foods"): resolve the earlier
     answer's client and reply with the client box for that earlier question."""
@@ -220,6 +229,7 @@ def pick_reply(cid: str, question: str, state: dict, pending: dict, pick: dict, 
               "mention": "", "inherited": False, "logged": None, "declined": False,
               "for_message": pending["message_id"], "for_question": earlier_q}
     attach_trade_context(client, earlier, earlier_q, emit)
+    attach_past_asks(client)
     answer = _simple(question, "info", "")
     answer.update(suggestions=[], client=client)
     return answer, {**state, "client": pick}
@@ -320,6 +330,7 @@ def chat(payload: dict = Body(...), x_ra_session: str = Header(default="local"))
                     if client["status"] == "match":
                         state["client"] = client["candidates"][0]
                         attach_trade_context(client, answer, question, emit)
+                        attach_past_asks(client)
                     elif prior.get("client"):
                         state["client"] = prior["client"]
                 elif prior.get("client"):
@@ -411,6 +422,7 @@ def client_pick(cid: str, mid: str, payload: dict = Body(...), x_ra_session: str
             raise HTTPException(400, "choose one of the clients offered for this answer")
     client.update(status="match", candidates=[pick], picked=True)
     attach_trade_context(client, answer, question, lambda _text: None)
+    attach_past_asks(client)
     answer["client"] = client
     conversations.update_answer(cid, mid, answer)
     _clear_pending(cid, mid, pick)

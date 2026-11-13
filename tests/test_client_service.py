@@ -32,6 +32,14 @@ out["pick_q"] = c.post("/v1/resolve-pick", json={"text": "and what about EUR/USD
 out["ctx_pinnacle"] = c.post("/v1/clients/C008/trade-context", json={"pairs": ["sgd/usd"]}, headers=h).json()
 out["ctx_never"] = c.post("/v1/clients/C003/trade-context", json={"pairs": ["USDSGD"]}, headers=h).json()
 out["ctx_unknown"] = c.post("/v1/clients/C999/trade-context", json={"pairs": ["USDSGD"]}, headers=h).status_code
+c.post("/v1/interactions", json={"client_id": "C001", "contact_id": "P001",
+                                 "question": "Jimmy from Harbourline asked about the SGD rates outlook"}, headers=h)
+c.post("/v1/interactions", json={"client_id": "C002", "contact_id": "P003",
+                                 "question": "Jimmy from Meridian Foods asked about AUD/USD"}, headers=h)
+out["asks_tan"] = c.get("/v1/clients/C001/asks", params={"contact_id": "P001"}, headers=h).json()
+out["asks_lee"] = c.get("/v1/clients/C002/asks", params={"contact_id": "P003", "limit": 10}, headers=h).json()
+out["asks_unknown"] = c.get("/v1/clients/C999/asks", headers=h).status_code
+out["asks_bad_contact"] = c.get("/v1/clients/C001/asks", params={"contact_id": "x;y"}, headers=h).status_code
 print(json.dumps(out))
 """
 
@@ -58,4 +66,12 @@ def test_client_service_api(tmp_path):
     assert {"label": "Net", "text": "SELL USD 38.8m"} in pin["lines"]
     assert any(r["note"] == "offsets BUY USD 47.0m (3 Jul)" for r in pin["trades"])
     assert out["ctx_never"]["contexts"][0]["lines"] == [{"label": None, "text": "No past USD/SGD trades on record."}]
+    # Past asks are per contact: Jimmy Tan (Harbourline) and Jimmy Lee (Meridian) never share a history.
+    tan, lee = out["asks_tan"], out["asks_lee"]
+    rates = [i["question"] for i in tan["items"] if i["question"].lower().endswith("sgd rates outlook")]
+    assert rates and all("Harbourline" not in q and "Jimmy" not in q for q in rates)  # names taken out
+    assert all("AUD/USD" not in i["question"] for i in tan["items"])
+    assert any("AUD/USD" in i["question"] for i in lee["items"])
+    assert all("SGD rates outlook" not in i["question"] for i in lee["items"])
+    assert out["asks_unknown"] == 404 and out["asks_bad_contact"] == 400
     assert out["ctx_unknown"] == 404
