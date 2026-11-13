@@ -1000,31 +1000,22 @@ function showLogin(message) {
 // Click the mode badge -> confirm strip with the cost note -> only Yes calls the server.
 function closeModeConfirm() { $("modeConfirm").hidden = true; $("modeConfirm").replaceChildren(); }
 
-$("modePill").addEventListener("click", () => {
+$("modePill").addEventListener("click", async () => {
   const model = (state.meta && state.meta.model) || {};
-  const box = $("modeConfirm");
-  if (model.public_mode || !box.hidden) { closeModeConfirm(); return; }
+  if (model.public_mode) return;
   if (!model.key_present) { toast("No API key found in .env"); return; }
   const turnOn = !model.available;
-  const yes = el("button", { class: "btn btn-primary", type: "button", text: "Yes" });
-  const no = el("button", { class: "btn btn-ghost", type: "button", text: "No" });
-  no.onclick = closeModeConfirm;
-  yes.onclick = async () => {
-    yes.disabled = no.disabled = true;
-    try {
-      const res = await api("/api/model", { method: "POST", body: JSON.stringify({ enabled: turnOn }) });
-      if (state.meta) state.meta.model = res.model;
-      renderFreshness();
-      toast(res.model.available ? "Claude API mode on" : "Extractive mode: no API calls");
-      closeModeConfirm();
-    } catch (e) {
-      yes.disabled = no.disabled = false;
-      toast(`Not changed: ${e.message}`);
-    }
-  };
-  box.replaceChildren(el("span", { text: turnOn ? model.confirm_on : model.confirm_off }), yes, no);
-  box.hidden = false;
-  yes.focus();
+  const pill = $("modePill");
+  pill.disabled = true;   // stop double-clicks while the request runs
+  try {
+    const res = await api("/api/model", { method: "POST", body: JSON.stringify({ enabled: turnOn }) });
+    if (state.meta) state.meta.model = res.model;
+    renderFreshness();    // redraws the badge (and re-enables it)
+    toast(res.model.available ? "Claude API mode on" : "Extractive mode: no API calls");
+  } catch (e) {
+    pill.disabled = false;
+    toast(`Not changed: ${e.message}`);
+  }
 });
 
 // ------------------------------------------------------------------ demo mode (pattern clients T01-T04)
