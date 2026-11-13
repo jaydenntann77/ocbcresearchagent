@@ -136,6 +136,12 @@ def test_planner_overview_is_not_a_follow_up():
     assert planner.plan_request("and what are the risks?", first.to_state(), WIN).inherited
 
 
+def test_fed_funds_target_labels_are_fed_funds():
+    from app.common.instruments import instrument_key
+    for label in ("Fed Funds Rate", "FFTR upper", "FFTR lower", "Fed funds target rate"):
+        assert instrument_key(label) == "FEDFUNDS", label
+
+
 def test_swap_tenors_are_separate_instruments():
     from app.common.instruments import display_name, instrument_key, related_rate_keys
     assert instrument_key("JPY TONAR") == "TONA"

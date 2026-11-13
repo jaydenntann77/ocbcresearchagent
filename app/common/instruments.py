@@ -46,7 +46,9 @@ def find_benchmarks(text: str) -> list[str]:
 
 
 RATE_PATTERNS = [
-    (re.compile(r"\bfed funds?\b|\bffr\b|federal funds", re.I), "FEDFUNDS"),
+    # "FFTR upper" (Fed funds target rate, upper bound) is how the monthly
+    # Research Monitor labels the same rate.
+    (re.compile(r"\bfed funds?\b|\bffr\b|\bfftr\b|federal funds", re.I), "FEDFUNDS"),
     (re.compile(r"\bsofr\b(?!\s*swap)", re.I), "SOFR"),
 ] + [(re.compile(rx, re.I), key) for key, (rx, _, _) in BENCHMARK_RATES.items()] + [
     (re.compile(r"\b(\d{1,2})[- ]?(?:y|yr|year)[- ]?(?:us )?(?:treasury|ust)\b|\bust\s?(\d{1,2})y\b", re.I), "UST{n}Y"),
@@ -125,7 +127,7 @@ def find_currencies(text: str) -> list[str]:
     return found
 
 
-RATE_ALIASES = {"FEDFUNDS": ["fed funds", "federal funds", "FFR", "Fed", "FOMC"]}
+RATE_ALIASES = {"FEDFUNDS": ["fed funds", "federal funds", "FFR", "FFTR", "Fed", "FOMC"]}
 _TENOR_KEY = re.compile(r"(UST|SGS|SOFRSWAP)(\d{1,2})Y")
 
 
