@@ -44,6 +44,7 @@ def test_orchestrator_cannot_access_corpus_or_web(orch, op):
 def test_orchestrator_permitted_channels(orch):
     assert orch["loopback_research"] == "ALLOWED"
     assert orch["loopback_validator"] == "ALLOWED"
+    assert orch["loopback_clientdata"] == "ALLOWED"
     assert orch["own_conversation_store"] == "ALLOWED"
 
 
@@ -62,6 +63,7 @@ def test_gateway_has_no_data_access():
     for op in ("read_raw_pdf", "sqlite_corpus_db", "sqlite_collection", "web_ocbc"):
         assert r[op].startswith("DENIED"), op
     assert r["loopback_research"].startswith("DENIED") and r["loopback_validator"].startswith("DENIED")
+    assert r["loopback_clientdata"].startswith("DENIED")
 
 
 def test_gateway_routes_have_no_path_to_specialists():

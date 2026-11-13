@@ -1,0 +1,5 @@
+contact_id,client_id,first_name,last_name,title,email,is_primary
+PT01,T01,Daniel,Koh,Treasury Manager,daniel.koh@aurora.example.com,1
+PT02,T02,Priya,Nair,CFO,priya.nair@bluewater.example.com,1
+PT03,T03,Ahmad,Faiz,Finance Director,ahmad.faiz@cendana.example.com,1
+PT04,T04,Mei Ling,Chua,Treasury Analyst,meiling.chua@dovetail.example.com,1

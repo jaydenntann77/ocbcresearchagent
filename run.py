@@ -6,11 +6,13 @@
 
 Each process receives only the tokens it needs:
   gateway      -> orchestrator, docs, admin tokens
-  orchestrator -> gateway->orch token (to verify), research task token, validator token, model key (if any)
+  orchestrator -> gateway->orch token (to verify), research task token, validator token, client-data token,
+                  model key (if any)
   research     -> research task token, evidence signing key
   validator    -> validator token, evidence signing key
   docs         -> docs token
   ingestion    -> admin token
+  clientdata   -> client-data token
 """
 from __future__ import annotations
 
@@ -24,20 +26,21 @@ import httpx
 
 from app.common import config
 
-SERVICES = ["research", "validator", "docs", "ingestion", "orchestrator", "gateway"]
+SERVICES = ["research", "validator", "docs", "ingestion", "clientdata", "orchestrator", "gateway"]
 MODULES = {
     "research": "app.research.service:app", "validator": "app.validator.service:app", "docs": "app.docs.service:app",
     "ingestion": "app.ingestion.service:app", "orchestrator": "app.orchestrator.service:app",
-    "gateway": "app.gateway.service:app",
+    "gateway": "app.gateway.service:app", "clientdata": "app.clientdata.service:app",
 }
 SECRETS_FOR = {
     "gateway": ["RA_TOKEN_GATEWAY_ORCH", "RA_TOKEN_GATEWAY_DOCS", "RA_TOKEN_ADMIN", "RA_SESSION_SECRET", "APP_PASSWORD"],
-    "orchestrator": ["RA_TOKEN_GATEWAY_ORCH", "RA_TOKEN_ORCH_RESEARCH", "RA_TOKEN_ORCH_VALIDATOR", "ANTHROPIC_API_KEY",
-                     "ANTHROPIC_AUTH_TOKEN"],
+    "orchestrator": ["RA_TOKEN_GATEWAY_ORCH", "RA_TOKEN_ORCH_RESEARCH", "RA_TOKEN_ORCH_VALIDATOR", "RA_TOKEN_ORCH_CLIENTS",
+                     "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"],
     "research": ["RA_TOKEN_ORCH_RESEARCH", "RA_EVIDENCE_SIGNING_KEY"],
     "validator": ["RA_TOKEN_ORCH_VALIDATOR", "RA_EVIDENCE_SIGNING_KEY"],
     "docs": ["RA_TOKEN_GATEWAY_DOCS"],
     "ingestion": ["RA_TOKEN_ADMIN"],
+    "clientdata": ["RA_TOKEN_ORCH_CLIENTS"],
 }
 ALL_SECRETS = {s for v in SECRETS_FOR.values() for s in v}
 
@@ -133,6 +136,8 @@ def main():
     if not config.model_credentials_present():
         print("Model credential not configured: running in extractive mode (set ANTHROPIC_API_KEY in .env to enable "
               "model-assisted synthesis).")
+    elif not config.PUBLIC_MODE:
+        print("Claude API: OFF (it starts off every time). Type \"turn on Claude API\" in the chat to switch it on.")
     if check_only:
         for p in procs.values():
             p.terminate()

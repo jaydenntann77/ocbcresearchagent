@@ -49,6 +49,8 @@ MODELS_DIR = DATA_DIR / "models"
 INGEST_STATE_DIR = DATA_DIR / "ingestion"
 # Orchestrator-owned storage: conversation history only.
 ORCH_DIR = DATA_DIR / "orchestrator"
+# Client-data service storage: the synthetic client book (clients, contacts, trades, interactions).
+CLIENT_DIR = DATA_DIR / "clientdata"
 
 PORTS = {
     "gateway": env_int("RA_GATEWAY_PORT", 8000),
@@ -57,6 +59,7 @@ PORTS = {
     "validator": env_int("RA_VALIDATOR_PORT", 8102),
     "docs": env_int("RA_DOCS_PORT", 8103),
     "ingestion": env_int("RA_INGESTION_PORT", 8104),
+    "clientdata": env_int("RA_CLIENTDATA_PORT", 8105),
 }
 
 
@@ -83,6 +86,7 @@ TOKEN_ORCH_VALIDATOR = env("RA_TOKEN_ORCH_VALIDATOR")    # orchestrator -> valid
 TOKEN_ADMIN = env("RA_TOKEN_ADMIN")                      # gateway -> ingestion admin
 TOKEN_GATEWAY_DOCS = env("RA_TOKEN_GATEWAY_DOCS")        # gateway -> document viewer
 TOKEN_GATEWAY_ORCH = env("RA_TOKEN_GATEWAY_ORCH")        # gateway -> conversation API
+TOKEN_ORCH_CLIENTS = env("RA_TOKEN_ORCH_CLIENTS")        # orchestrator -> client-data service
 EVIDENCE_SIGNING_KEY = env("RA_EVIDENCE_SIGNING_KEY")    # research + validator only
 
 MODEL_NAME = env("RA_MODEL", "claude-opus-5-5")
@@ -91,6 +95,9 @@ MODEL_EFFORT = env("RA_MODEL_EFFORT", "medium")
 # (Fed -> FOMC, Fed funds). Set RA_QUERY_REWRITE=0 to turn it off.
 QUERY_MODEL = env("RA_QUERY_MODEL", "claude-haiku-5-5")
 QUERY_REWRITE = env("RA_QUERY_REWRITE", "1") != "0"
+# Client-box trade note: Claude Haiku may reword the computed lines and ideas (each checked
+# line by line; the research link is never reworded). Needs a credential; RA_CLIENT_NOTE_MODEL=0 turns it off.
+CLIENT_NOTE_MODEL = env("RA_CLIENT_NOTE_MODEL", "1") != "0"
 MODEL_API_HOST = "api.anthropic.com"
 
 

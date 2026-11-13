@@ -24,6 +24,10 @@ r["cookie_set"] = "ra_session" in c.cookies
 r["session_after"] = c.get("/api/session").json()
 r["admin_ingest"] = c.post("/api/admin/ingest", json={}).status_code
 r["admin_schedule"] = c.put("/api/admin/schedule", json={"cron": "0 8 * * *"}).status_code
+r["demo_toggle"] = c.post("/api/demo", json={"enabled": True}).status_code
+r["model_switch"] = c.post("/api/conversations/c-0123456789ab/messages/m-0123456789ab/model-switch",
+                         json={"confirm": True}).status_code
+r["model_button"] = c.post("/api/model", json={"enabled": True}).status_code
 forged = TestClient(app, base_url="http://testserver", cookies={"ra_session": "abc.deadbeef"})
 r["forged_cookie"] = forged.get("/api/conversations").status_code
 other = TestClient(app, base_url="http://testserver")
@@ -46,6 +50,9 @@ def test_public_mode_gateway_rules():
     assert r["right_pw"] == 200 and r["cookie_set"]
     assert r["session_after"]["authenticated"] is True
     assert r["admin_ingest"] == 403 and r["admin_schedule"] == 403  # read-only corpus when hosted
+    assert r["demo_toggle"] == 403  # demo mode (pattern clients) cannot be switched on when hosted
+    assert r["model_switch"] == 403  # the Claude API switch cannot be used when hosted
+    assert r["model_button"] == 403
     assert r["forged_cookie"] == 401
     assert r["throttle_last"] == 429
     assert r["index_public"] == 200  # the login page itself loads
