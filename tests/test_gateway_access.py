@@ -34,6 +34,8 @@ other = TestClient(app, base_url="http://testserver")
 codes = [other.post("/api/login", json={"password": "x"}).status_code for _ in range(11)]
 r["throttle_last"] = codes[-1]
 r["index_public"] = c.get("/").status_code
+r["memory_save"] = c.post("/api/memory/confirm", json={"name": "a", "company": "b", "description": "c",
+                                                     "time": "d"}).status_code
 print(json.dumps(r))
 '''
 
@@ -56,3 +58,38 @@ def test_public_mode_gateway_rules():
     assert r["forged_cookie"] == 401
     assert r["throttle_last"] == 429
     assert r["index_public"] == 200  # the login page itself loads
+    assert r["memory_save"] == 403  # client memory stays off on the hosted demo unless enabled
+
+
+MEMORY_PROBE = r'''
+import json
+from fastapi.testclient import TestClient
+from app.gateway.service import app
+with TestClient(app, base_url="http://testserver") as c:  # one event loop for every request
+    c.post("/api/login", json={"password": "s3cret-demo"})
+    body = {"name": "Jimmy", "company": "Harbourline", "description": "USD/SGD forecast", "time": "now"}
+    resps = [c.post("/api/memory/confirm", json=body) for _ in range(4)]
+    codes = [x.status_code for x in resps]
+    details = [(x.json() or {}).get("detail", "") if x.headers.get("content-type", "").startswith("application/json")
+               else "" for x in resps]
+    r = {"codes": codes, "details": details, "demo": c.post("/api/demo", json={"enabled": True}).status_code,
+         "model": c.post("/api/model", json={"enabled": True}).status_code}
+print(json.dumps(r))
+'''
+
+
+def test_hosted_memory_opt_in_is_capped():
+    """With RA_HOSTED_MEMORY=1 the gateway forwards saves up to the per-visitor cap, then answers 429. What
+    the orchestrator replies depends on whether one is running (none: 503; a live one with other tokens: 403),
+    so the test checks that the gateway itself did not refuse. Demo mode and the Claude switch stay blocked."""
+    env = dict(os.environ, RA_PUBLIC_MODE="1", APP_PASSWORD="s3cret-demo", RA_SESSION_SECRET="test-secret",
+               RA_HOSTED_MEMORY="1", RA_MEMORY_SAVES_PER_HOUR="3",
+               RA_TOKEN_ADMIN="a", RA_TOKEN_GATEWAY_ORCH="b", RA_TOKEN_GATEWAY_DOCS="c")
+    proc = subprocess.run([sys.executable, "-c", MEMORY_PROBE], cwd=ROOT, env=env, capture_output=True, text=True,
+                          timeout=120)
+    assert proc.returncode == 0, proc.stderr[-2000:]
+    r = json.loads(proc.stdout.strip().splitlines()[-1])
+    for code, detail in zip(r["codes"][:3], r["details"][:3]):
+        assert code != 429 and "disabled on the hosted demo" not in detail, r
+    assert r["codes"][3] == 429, r
+    assert r["demo"] == 403 and r["model"] == 403

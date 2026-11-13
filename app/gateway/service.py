@@ -53,6 +53,7 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' 
        f"connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors {FRAME_ANCESTORS}")
 
 _chat_hits: dict[str, deque] = defaultdict(deque)
+_memory_hits: dict[str, deque] = defaultdict(deque)
 _login_failures: dict[str, deque] = defaultdict(deque)
 
 
@@ -197,7 +198,12 @@ async def meta(request: Request):
 @app.post("/api/memory/confirm")
 async def memory_confirm(request: Request):
     if config.PUBLIC_MODE:
-        raise HTTPException(403, "Client memory is disabled on the hosted demo.")
+        if not config.HOSTED_MEMORY:
+            raise HTTPException(403, "Client memory is disabled on the hosted demo.")
+        limit = config.MEMORY_SAVES_PER_HOUR
+        if not (_hit(_memory_hits, "sid:" + _sid(request), 3600, limit)
+                and _hit(_memory_hits, "ip:" + _client_ip(request), 3600, limit * 3)):
+            raise HTTPException(429, f"Save limit reached ({limit} per hour). Please try again later.")
     return await _proxy(request, f"{ORCH}/v1/memory/confirm", config.TOKEN_GATEWAY_ORCH)
 
 @app.api_route("/api/conversations", methods=["GET"])
