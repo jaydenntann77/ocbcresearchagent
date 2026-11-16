@@ -10,6 +10,13 @@ no access to the research corpus. dummy_data/ is read-only for this process.
   POST /v1/resolve-pick        which listed match a reply ("b", "Meridian Foods") picks
   POST /v1/clients/{id}/trade-context   the client's own trades in the asked pair(s), as a neutral note
   GET  /v1/demo, POST /v1/demo demo mode: pattern clients T01-T04 (OFF at every start; refused in public mode)
+
+Read-only views for agent mode (app/clientdata/insights.py; no CIF, RM code or e-mail in any reply):
+  GET  /v1/book/clients        clients with a one-line activity summary (filters: rm, segment, pair, q)
+  GET  /v1/book/maturities     open deals maturing in the next N days, book-wide or for one client
+  GET  /v1/clients/{id}/overview    meeting-prep view: profile, contacts, activity, pairs, maturities, asks, patterns
+  GET  /v1/clients/{id}/trades      deals newest first (filters: pair, status, product, since_days, limit)
+  GET  /v1/clients/{id}/positions   per pair: open position lines, net, offsets, rolls, pattern notes
 """
 from __future__ import annotations
 
@@ -30,6 +37,7 @@ import re  # noqa: E402
 
 from fastapi import Body, Depends, FastAPI, HTTPException  # noqa: E402
 
+from app.clientdata import insights  # noqa: E402
 from app.clientdata.book import ClientBook  # noqa: E402
 from app.clientdata.identify import identify, resolve_pick  # noqa: E402
 from app.clientdata.store import Store  # noqa: E402
@@ -103,6 +111,62 @@ def client_asks(client_id: str, contact_id: str | None = None, limit: int = 3):
         items.append({"asked_at": r.get("asked_at"), "question": q[:200], "topic": r.get("topic") or "",
                       "instruments": r.get("instruments") or ""})
     return {"count": len(rows), "items": items}
+
+
+# ------------------------------------------------------------------ agent-mode views (read-only)
+def _client_or_404(client_id: str) -> dict:
+    c = book.client(client_id) if ID_RE.match(client_id or "") else None
+    if not c:
+        raise HTTPException(404, "client not found")
+    return c
+
+
+def _clean_question(clients, contacts):
+    def clean(q: str) -> str:
+        try:
+            return identify(q, clients, contacts).research_question or q
+        except Exception:  # noqa: BLE001 - fall back to the question as logged
+            return q
+    return clean
+
+
+def _short(value: str | None, n: int = 40) -> str | None:
+    return (value or "").strip()[:n] or None
+
+
+@app.get("/v1/book/clients", dependencies=[Depends(auth)])
+def book_clients(rm: str | None = None, segment: str | None = None, pair: str | None = None, q: str | None = None):
+    rows = [(c, book.trades(c)) for c in book.clients()]
+    return insights.client_list(rows, today_sgt(), _short(rm), _short(segment), _short(pair, 10), _short(q))
+
+
+@app.get("/v1/book/maturities", dependencies=[Depends(auth)])
+def book_maturities(days: int = 30, client_id: str | None = None, pair: str | None = None):
+    clients = [_client_or_404(client_id)] if client_id else book.clients()
+    return insights.maturities([(c, book.trades(c)) for c in clients], today_sgt(), days, _short(pair, 10))
+
+
+@app.get("/v1/clients/{client_id}/overview", dependencies=[Depends(auth)])
+def client_overview(client_id: str):
+    c = _client_or_404(client_id)
+    return insights.overview(c, book.contacts(client_id), book.trades(c), book.interactions(client_id, limit=1000),
+                             today_sgt(), _clean_question(book.clients(), book.contacts()))
+
+
+@app.get("/v1/clients/{client_id}/trades", dependencies=[Depends(auth)])
+def client_trades(client_id: str, pair: str | None = None, status: str = "all", product: str | None = None,
+                  since_days: int | None = None, limit: int = 25):
+    c = _client_or_404(client_id)
+    if status not in ("all", "open", "closed"):
+        raise HTTPException(400, "status must be all, open or closed")
+    return insights.trade_list(book.trades(c), today_sgt(), _short(pair, 10), status, _short(product, 20),
+                               since_days, limit)
+
+
+@app.get("/v1/clients/{client_id}/positions", dependencies=[Depends(auth)])
+def client_positions(client_id: str, pair: str | None = None):
+    c = _client_or_404(client_id)
+    return insights.positions(book.trades(c), book.interactions(client_id, limit=1000), today_sgt(), _short(pair, 10))
 
 
 @app.post("/v1/resolve-pick", dependencies=[Depends(auth)])

@@ -93,6 +93,10 @@ two files unless your change is meant to update the published results.
 | To change… | Edit |
 |---|---|
 | How the AI writes summaries (tone, citation rules) | `app/orchestrator/llm.py` (the `SYSTEM` text) |
+| The sales team's rulebook for agent mode | `app/orchestrator/playbook.md` (plain text; restart to apply) |
+| Agent-mode behaviour, tools and labels | `app/orchestrator/agent.py` (`SYSTEM`, `TOOLS`) |
+| Which questions go to research vs the agent | `app/orchestrator/router.py` |
+| What the agent's client tools return | `app/clientdata/insights.py` |
 | Web-search and investment-advice refusals | `app/orchestrator/guardrails.py` |
 | Which specialist handles which question | `app/orchestrator/planner.py` |
 | Topic keywords for each specialist | `config/specialists.json` |

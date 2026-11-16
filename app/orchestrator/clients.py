@@ -109,6 +109,30 @@ class ClientDataClient:
             return None
         return r.json() if r.status_code == 200 else None
 
+    VIEWS = {"clients": "/v1/book/clients", "maturities": "/v1/book/maturities",
+             "overview": "/v1/clients/{client_id}/overview", "trades": "/v1/clients/{client_id}/trades",
+             "positions": "/v1/clients/{client_id}/positions", "asks": "/v1/clients/{client_id}/asks"}
+
+    def view(self, name: str, client_id: str | None = None, **params) -> dict:
+        """Read-only agent-mode views of the client book. Raises ServiceError("404: ...") etc. so the
+        agent can tell the model what went wrong (unknown client, bad filter, service down)."""
+        path = self.VIEWS[name].format(client_id=client_id or "")
+        if client_id and "{client_id}" not in self.VIEWS[name]:
+            params["client_id"] = client_id      # book-wide views take the client as a filter
+        params = {k: v for k, v in params.items() if v not in (None, "")}
+        try:
+            r = self.client.get(f"{self.base}{path}", params=params, headers=self._h())
+        except httpx.HTTPError as exc:
+            raise ServiceError(f"client-data service unreachable ({type(exc).__name__})") from exc
+        if r.status_code != 200:
+            detail = ""
+            try:
+                detail = (r.json() or {}).get("detail", "")
+            except ValueError:
+                pass
+            raise ServiceError(f"{r.status_code}: {detail or 'request failed'}")
+        return r.json()
+
     def resolve_pick(self, text: str, candidates: list[dict]) -> dict | None:
         try:
             r = self.client.post(f"{self.base}/v1/resolve-pick", json={"text": text, "candidates": candidates},

@@ -17,6 +17,10 @@ window. The usual window is 30 days (`RA_INGEST_WINDOW_DAYS=30` in `.env`), and 
 returns to it. The corpus holds 113 documents (see [reports/ingestion_report.md](reports/ingestion_report.md)). Documents that drop out of the window are kept on
 disk; widening the window again brings them back into answers without re-downloading.
 
+Research Desk also has an **agent mode** for client insights: meeting prep, trades, maturities to roll or hedge,
+and simple hedging ideas from the client book. Every section is labelled by where it came from. See
+[Agent mode](#agent-mode-client-insights-for-salespeople).
+
 > **Want to make changes?** Read [CONTRIBUTING.md](CONTRIBUTING.md) first. It covers how to run your own
 > copy, how to test a change, and how changes reach the live demo. Pushing to GitHub does **not** update the
 > live site.
@@ -95,7 +99,8 @@ A question costs roughly US$0.05–0.10 on Opus 5.5 (estimate from token counts,
 |---|---|---|
 | Frontend | `frontend/` | Research workspace, source drawer, copy actions, corpus status/admin view. Renders all text with `textContent`. |
 | Gateway | `app/gateway/service.py` | Serves the UI. Proxies only `/api/chat`, `/api/meta`, `/api/conversations*`, `/api/docs/*`, `/api/admin/*`. Has **no route** to specialists or validator. |
-| Orchestrator | `app/orchestrator/` | Guardrails (web/advice), planning (`planner.py`), specialist tasks, follow-up round, composition (`composer.py`), optional model synthesis (`llm.py`), conversation history. |
+| Orchestrator | `app/orchestrator/` | Guardrails (web/advice), planning (`planner.py`), specialist tasks, follow-up round, composition (`composer.py`), optional model synthesis (`llm.py`), conversation history. Research vs agent routing (`router.py`) and the agent-mode tool loop (`agent.py`). |
+| Client data | `app/clientdata/` | The (synthetic) client book: client identification, logged asks, trade notes, and the read-only views agent mode's tools use (`insights.py`). Only the orchestrator can call it. |
 | Specialists | `app/research/` | Five agents in one service. Each gets handles only to its permitted collection (`config/specialists.json`). Exact forecast-cell lookup plus BM25/FTS5 and local-embedding retrieval with RRF fusion and exact-identifier boosting. |
 | Validator | `app/validator/` | Deterministic checks of draft answer + evidence ledger against the corpus. Returns verdicts only. |
 | Document viewer | `app/docs/` | Page PNG with the cited excerpt highlighted, original PDF (`#page=N`), document metadata. |
@@ -213,6 +218,68 @@ everything else.
   * currency-pair direction
 
   Failing statements are removed and the count is disclosed. If the validator is unreachable, the whole answer is withheld.
+
+## Agent mode: client insights for salespeople
+
+Research Desk has two answer modes. A switch under the chat box picks **Auto** (default), **Research** or **Agent**.
+
+* **Research mode** is everything above. It is OCBC research only, verbatim or validated, cited to the page. The
+  assistant adds no ideas of its own.
+* **Agent mode** treats Research Desk as an assistant. It answers asks like *"Brief me on Harbourline before my
+  meeting"*, *"Which clients have deals maturing in the next 2 weeks?"*, *"Any hedging ideas for Lumina?"* or
+  *"What's a zero-cost collar?"*.
+
+**How Auto decides** (`app/orchestrator/router.py`, deterministic):
+
+* Agent words such as brief, meeting, trades, maturing, roll, hedging ideas, collar, which clients, *what is a…*
+  go to the agent.
+* Research words such as outlook, forecast, view, research, or a named market go to research.
+* A follow-up to an agent answer stays with the agent.
+* Anything else tries research first, and the agent answers if research cannot place it.
+
+**How the agent works** (`app/orchestrator/agent.py`). It is a Claude (`claude-opus-5-5`) tool-use loop with at
+most 8 model turns. It has eight read-only tools:
+
+| Tool | What it reads |
+|---|---|
+| `find_client`, `list_clients` | Who a name refers to; clients filtered by RM, segment, pair or free text |
+| `client_overview` | Profile, contacts, activity, per-pair positions, deals maturing in 30 days, recent asks, rule-based pattern notes |
+| `client_trades`, `client_positions`, `past_asks` | Deals (filters: pair, open/closed, product, since), net positions, offsets and rolls, logged asks |
+| `upcoming_maturities` | Open deals maturing in the next N days, book-wide or for one client, with "has rolled this pair before" |
+| `ocbc_research` | The full research pipeline (specialists and validator). It returns numbered items R1, R2…; at most 2 calls per answer |
+
+The client tools are views on the client-data service (`app/clientdata/insights.py`). The agent gets names,
+titles and trades, but no CIF, RM code or e-mail address. It has no web access, no market data and no write
+access.
+
+**What is enforced in code, not left to the prompt:**
+
+* Every section is labelled with its source: *Client book*, *OCBC research · cited*,
+  *AI suggestion · not OCBC research* or *General explanation · AI*.
+* The model never writes research sections. It picks research items by id, and the answer shows those sentences
+  and forecast rows exactly as the research pipeline produced them, with their citations. Verbatim excerpts are in
+  quotation marks; model summaries that passed the validator carry a *Validated summary* badge. A research point
+  naming no valid item is dropped.
+* Every figure with decimals, or of 100 and above, in client-book and suggestion text and tables is matched
+  against the data the tools returned. A figure that is not found is shown as **Check …**.
+* A non-research section that attributes a view to OCBC is flagged.
+* Each answer has a *How I worked this out* trace: every tool call, what it returned, timings, model turns and
+  tokens. The `D1` chips beside each fact jump to the step it came from.
+
+**Without a model** (no key, Claude API switched off, or the daily cap reached), an agent ask about a client gets
+a deterministic **client-book snapshot**. A maturities ask gets the maturities table. Anything else falls back to
+research, and a notice explains why.
+
+**The sales team's rulebook** goes in [`app/orchestrator/playbook.md`](app/orchestrator/playbook.md). It is
+added to the agent's instructions on every answer. The file in the repo holds placeholder defaults until the
+team's own rules arrive. Restart the app after editing it.
+
+**Cost.** An agent answer makes 2–5 Opus 5.5 calls, plus one research synthesis when it asks OCBC research. Prompt
+caching is on. Expect roughly US$0.10–0.30 per answer; this is an estimate, not metered. Each agent answer counts
+once against `RA_MODEL_DAILY_CAP`.
+
+**Data.** The client book in this repo is synthetic. Agent mode sends the client data it reads to the Anthropic
+API. Real client data would need the bank's approval for that, or a pseudonymisation layer in front of the tools.
 
 ## Dates and freshness
 

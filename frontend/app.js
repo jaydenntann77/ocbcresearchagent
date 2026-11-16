@@ -2,7 +2,16 @@
 // textContent (never innerHTML) - PDF text is untrusted evidence.
 
 const $ = (id) => document.getElementById(id);
-const state = { cid: null, answers: new Map(), meta: null, busy: false, adminTimer: null };
+const state = { cid: null, answers: new Map(), meta: null, busy: false, adminTimer: null, mode: readMode() };
+
+// Answer mode for the next question: auto (the router decides), research (OCBC research only,
+// verbatim) or agent (client book + research + labelled AI suggestions). Remembered per browser.
+function readMode() {
+  try {
+    const m = localStorage.getItem("ra-mode");
+    return ["auto", "research", "agent"].includes(m) ? m : "auto";
+  } catch (_) { return "auto"; }
+}
 
 const ICON = {
   check: '<path d="M4 10.5l4 4 8-9"/>',
@@ -15,6 +24,10 @@ const ICON = {
   ext: '<path d="M11 3h6v6M17 3l-8 8M14 12v4H4V6h4"/>',
   trash: '<path d="M4 6h12M8 6V4h4v2M6 6l1 11h6l1-11"/>',
   q: '<path d="M7.5 7.5a2.5 2.5 0 114 2c-.9.6-1.5 1.1-1.5 2.2M10 14.5v.01"/><circle cx="10" cy="10" r="7.5"/>',
+  user: '<circle cx="10" cy="7" r="3.2"/><path d="M3.5 17c1-3.3 3.6-5 6.5-5s5.5 1.7 6.5 5"/>',
+  clock: '<circle cx="10" cy="10" r="7.5"/><path d="M10 5.5V10l3 2"/>',
+  list: '<path d="M7.5 5.5H17M7.5 10H17M7.5 14.5H17M3.5 5.5h.01M3.5 10h.01M3.5 14.5h.01"/>',
+  bolt: '<path d="M11 2.5L4.5 11h5l-1 6.5L15.5 9h-5z"/>',
 };
 
 function svg(name) {
@@ -167,17 +180,22 @@ function newChat() {
 function renderEmpty() {
   const thread = $("thread");
   thread.replaceChildren();
-  const sugg = (state.meta && state.meta.suggestions) || [
+  const research = (state.meta && state.meta.suggestions) || [
     "What does the latest available research say about USD/SGD through 2027?",
     "Summarize OCBC's published view on SGD interest rates.",
     "What are the main risks identified in the latest credit research?",
   ];
+  const agentAsks = (state.meta && state.meta.agent_suggestions) || [];
+  const group = (label, kind, sub, items, icon) => items.length ? el("div", { class: "sugg-group" },
+    el("div", { class: "sugg-head" }, el("span", { class: `ag-kind k-${kind}`, text: label }), el("span", { class: "muted", text: sub })),
+    el("div", { class: "suggestions" }, items.map((s) => el("button", { class: "suggestion", type: "button", onclick: () => ask(s) }, svg(icon), el("span", { text: s }))))) : null;
   thread.append(el("div", { class: "hero" },
-    el("div", { class: "kicker", text: "OCBC Research Assistant" }),
-    el("h1", { text: "Answer client questions from OCBC research — with every number traceable." }),
-    el("p", { text: "Ask for forecasts, published rationale or risks. Specialist agents search the ingested OCBC research PDFs; every value and statement is cited to a document page and validated before you see it." }),
-    el("div", { class: "suggestions" }, sugg.map((s) => el("button", { class: "suggestion", type: "button", onclick: () => ask(s) }, svg("spark"), el("span", { text: s })))),
-    el("div", { class: "hero-note", text: "Suggested questions are examples only — they are not claims that the current corpus contains those answers." }),
+    el("div", { class: "kicker", text: "OCBC Research Desk" }),
+    el("h1", { text: "OCBC research and client insights — with every number traceable." }),
+    el("p", { text: "Ask for OCBC's forecasts, rationale or risks and get OCBC's research, cited to the page and validated. Or use it as your assistant — brief me on a client, what's maturing, simple hedging ideas — answered from the client book, with every section labelled by where it came from." }),
+    group("OCBC research", "ocbc_research", "forecasts, views and risks, cited to the page", research.slice(0, 3), "spark"),
+    group("Client insights · agent", "client_data", "meeting prep, maturities, ideas", agentAsks.slice(0, 4), "bolt"),
+    el("div", { class: "hero-note", text: "Suggested questions are examples only. Client data in this demo is synthetic." }),
   ));
 }
 
@@ -218,7 +236,7 @@ async function ask(question) {
   autosize();
   try {
     const res = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: question, conversation_id: state.cid }) });
+      body: JSON.stringify({ message: question, conversation_id: state.cid, mode: state.mode }) });
     if (res.status === 401) { prog.done(); showLogin(); return; }
     if (!res.ok || !res.body) {
       let detail = `HTTP ${res.status}`;
@@ -447,7 +465,23 @@ function renderTable(answer) {
       notes.map((n) => el("div", { class: "note" }, el("span", { text: n.text }), citeChips(answer, n.citations)))));
 }
 
+function sourcesDetails(a, list) {
+  return el("details", { class: "more" }, el("summary", {}, "Sources", el("span", { class: "count", text: ` · ${list.length}` })),
+    el("ol", { class: "sources" }, list.map((s) => el("li", { tabindex: "0", role: "button", onclick: () => openSource(a, s.n),
+      onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openSource(a, s.n); } } },
+      el("span", { class: "n", text: String(s.n) }),
+      el("div", {},
+        el("div", { class: "t", text: s.title }),
+        el("div", { class: "m" }, el("span", { text: `Published ${s.publication_label}` }),
+          el("span", { text: `PDF p.${s.pdf_page}${s.printed_page && s.printed_page !== String(s.pdf_page) ? ` (printed ${s.printed_page})` : ""}` }),
+          s.data_date ? el("span", { text: s.data_date }) : null,
+          s.ocr ? el("span", { class: "badge warn", text: "OCR" }) : null),
+        el("div", { class: "x", text: s.excerpt })),
+      freshBadge(s.freshness)))));
+}
+
 function renderAnswer(a, mid) {
+  if (a.kind === "agent") return renderAgentAnswer(a, mid);
   if (a.answer_id) state.answers.set(a.answer_id, a);
   const [statusText, statusCls] = STATUS[a.status] || [a.status, ""];
   const head = el("div", { class: "answer-head" },
@@ -495,20 +529,7 @@ function renderAnswer(a, mid) {
       a.risks.length ? el("div", {}, el("h4", { text: "Risks" }), claimList(a, a.risks, "risk")) : null,
       (a.scenarios || []).length ? el("div", {}, el("h4", { text: "Scenarios" }), claimList(a, a.scenarios)) : null));
   }
-  if (a.sources && a.sources.length) {
-    body.append(el("details", { class: "more" }, el("summary", {}, "Sources", el("span", { class: "count", text: ` · ${a.sources.length}` })),
-      el("ol", { class: "sources" }, a.sources.map((s) => el("li", { tabindex: "0", role: "button", onclick: () => openSource(a, s.n),
-        onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openSource(a, s.n); } } },
-        el("span", { class: "n", text: String(s.n) }),
-        el("div", {},
-          el("div", { class: "t", text: s.title }),
-          el("div", { class: "m" }, el("span", { text: `Published ${s.publication_label}` }),
-            el("span", { text: `PDF p.${s.pdf_page}${s.printed_page && s.printed_page !== String(s.pdf_page) ? ` (printed ${s.printed_page})` : ""}` }),
-            s.data_date ? el("span", { text: s.data_date }) : null,
-            s.ocr ? el("span", { class: "badge warn", text: "OCR" }) : null),
-          el("div", { class: "x", text: s.excerpt })),
-        freshBadge(s.freshness))))));
-  }
+  if (a.sources && a.sources.length) body.append(sourcesDetails(a, a.sources));
   const fr = a.freshness || {};
   if (a.plan || (a.sources && a.sources.length)) {
     body.append(el("details", { class: "audit" }, el("summary", { text: "How this answer was produced" }),
@@ -542,6 +563,168 @@ function renderAnswer(a, mid) {
   return el("article", { class: "answer" }, head, body, foot.childNodes.length ? foot : null,
     sourcesFooter ? el("div", { class: "answer-sources" }, sourcesFooter) : null,
     clientBox.childNodes.length ? clientBox : null);
+}
+
+// ------------------------------------------------------------------ agent mode answers
+// Every section carries a label for where it came from. Research sections show OCBC's validated
+// sentences exactly as the research pipeline produced them (the agent model never writes them); figures the server could
+// not find in the data the agent read are flagged "Check …".
+const KIND = {
+  client_data: { label: "Client book", note: null },
+  ocbc_research: { label: "OCBC research · cited", note: null },
+  ai_suggestion: { label: "AI suggestion · not OCBC research",
+    note: "AI-generated for discussion — not OCBC research or investment advice. Check suitability and pricing with the desk." },
+  general: { label: "General explanation · AI", note: "General background written by the AI — not an OCBC view." },
+};
+const TOOL_ICON = { find_client: "user", list_clients: "list", client_overview: "user", client_trades: "list",
+  upcoming_maturities: "clock", client_positions: "list", past_asks: "q", ocbc_research: "doc" };
+
+function showStep(btn, ref) {
+  // A "D2" chip opens the trace and highlights the step the fact came from.
+  const det = btn.closest("article") && btn.closest("article").querySelector("details.agent-trace");
+  if (!det) return;
+  det.open = true;
+  const li = det.querySelector(`[data-step="${ref}"]`);
+  if (!li) return;
+  li.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  li.classList.remove("flash");
+  void li.offsetWidth;  // restart the highlight animation
+  li.classList.add("flash");
+}
+
+function refChips(p, trace) {
+  return (p.refs || []).filter((r) => trace.has(r)).map((r) => {
+    const t = trace.get(r);
+    return el("button", { class: "ref", type: "button", title: `${t.label}${t.summary ? ` — ${t.summary}` : ""}`,
+      "aria-label": `Data from step ${r}: ${t.label}`, text: r, onclick: (e) => showStep(e.currentTarget, r) });
+  });
+}
+
+function agentPoint(a, p, trace) {
+  // Research items are shown exactly as the research pipeline produced them: quotation marks for
+  // verbatim excerpts, a badge for model summaries that passed the validator.
+  const verbatim = p.quote && (p.mode || "verbatim") === "verbatim";
+  return el("li", { class: p.quote ? "quote" : "" },
+    el("span", { class: "pt-text", text: verbatim ? `“${p.text}”` : p.text }), " ",
+    citeChips(a, p.citations), refChips(p, trace),
+    p.quote && p.mode === "summary" ? el("span", { class: "badge info chk", text: "Validated summary",
+      title: "Written from the cited OCBC excerpts and checked by the validator (numbers, wording, citations)." }) : null,
+    (p.unverified || []).map((x) => el("span", { class: "badge warn chk", text: `Check ${x}`,
+      title: "This figure was not found in the data the agent read. Check it before using it." })),
+    p.view_flag ? el("span", { class: "badge warn chk", text: "Mentions an OCBC view — see the quoted research",
+      title: "Only sections labelled OCBC research carry OCBC's view, exactly as published by the research pipeline." }) : null);
+}
+
+function agentTable(t) {
+  if (!t || !t.columns || !t.rows || !t.rows.length) return null;
+  const bad = t.unverified || [];
+  return el("div", { class: "table-wrap" }, el("table", { class: "fc ag-table" },
+    el("thead", {}, el("tr", {}, t.columns.map((c) => el("th", { text: c })))),
+    el("tbody", {}, t.rows.map((r) => el("tr", {}, r.map((c) => {
+      const flagged = bad.some((b) => String(c).includes(b));
+      return el("td", { class: flagged ? "unv" : null, title: flagged ? "Figure not found in the data the agent read — check it." : null, text: c });
+    }))))));
+}
+
+function agentSection(a, s, trace) {
+  const k = KIND[s.kind] || KIND.ai_suggestion;
+  const forecast = (s.research_tables || []).length ? renderTable({ ...a, table: s.research_tables, table_notes: [] }) : null;
+  return el("section", { class: `ag-sec k-${s.kind}` },
+    el("div", { class: "ag-sec-head" }, el("span", { class: `ag-kind k-${s.kind}`, text: k.label }), el("h3", { text: s.title })),
+    s.points.length ? el("ul", { class: "ag-points" }, s.points.map((p) => agentPoint(a, p, trace))) : null,
+    agentTable(s.table), forecast,
+    k.note ? el("div", { class: "ag-note", text: k.note }) : null);
+}
+
+function fmtMs(ms) { return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`; }
+
+function agentTrace(a) {
+  const g = a.agent || {};
+  const steps = a.trace || [];
+  const n = (x, w) => `${(x || 0).toLocaleString()} ${w}`;
+  return el("details", { class: "audit agent-trace" },
+    el("summary", { text: `How I worked this out · ${steps.length} step${steps.length === 1 ? "" : "s"}${g.seconds ? ` · ${g.seconds} s` : ""}` }),
+    el("ol", { class: "steps" }, steps.map((t) => el("li", { "data-step": t.id, class: t.ok ? null : "failed" },
+      svg(TOOL_ICON[t.tool] || "spark"),
+      el("div", {},
+        el("div", { class: "st-label" }, el("span", { class: "ref static", text: t.id }), " ", t.label),
+        el("div", { class: "st-sum", text: [t.summary, t.ms ? fmtMs(t.ms) : null].filter(Boolean).join(" · ") }))))),
+    el("div", { class: "st-meta", text: g.deterministic
+      ? "No model was used: every line comes straight from the client book."
+      : `Model ${g.model} · ${g.turns} turn${g.turns === 1 ? "" : "s"} · ${n((g.input_tokens || 0) + (g.cache_creation_input_tokens || 0) + (g.cache_read_input_tokens || 0), "input")} (${n(g.cache_read_input_tokens, "from cache")}) / ${n(g.output_tokens, "output")} tokens` }),
+    el("div", { class: "st-meta", text: "Checks run on every agent answer: OCBC research is shown exactly as the validated research pipeline produced it (the AI only chooses which items to show); figures with decimals or of 100 and above in client-book and suggestion sections are matched against the data the agent read; no web or market data is available to the agent." }));
+}
+
+function agentVerify(a) {
+  const v = a.verification || {};
+  const parts = [];
+  if (v.figures_checked) parts.push(`${v.figures_checked} figure${v.figures_checked === 1 ? "" : "s"} matched to the client book`);
+  if (v.research_quoted) parts.push(`${v.research_quoted} cited OCBC research item${v.research_quoted === 1 ? "" : "s"}, unedited`);
+  if (!parts.length) parts.push(v.client_results ? "Read from the client book" : "No client data or OCBC research was needed");
+  if (v.unverified) {
+    parts[0] = `${v.figures_checked - v.unverified} of ${v.figures_checked} figures matched to the client book`;
+    parts.push(`${v.unverified} flagged to check`);
+  }
+  return el("span", { class: `verify${v.unverified ? " warnv" : ""}` }, svg(v.unverified ? "alert" : "check"), parts.join(" · "));
+}
+
+function citedSources(a) {
+  const used = new Set(a.cited_sources || []);
+  return (a.sources || []).filter((s) => used.has(s.n));
+}
+
+function renderAgentAnswer(a, mid) {
+  if (a.answer_id) state.answers.set(a.answer_id, a);
+  const trace = new Map((a.trace || []).map((t) => [t.id, t]));
+  const g = a.agent || {};
+  const head = el("div", { class: "answer-head" },
+    el("span", { class: "badge agent" }, svg("bolt"), g.deterministic ? "Client-book snapshot" : "Agent mode"),
+    a.status !== "complete" ? el("span", { class: "badge warn", text: "Partial" }) : null,
+    el("span", { class: "spacer" }),
+    el("span", { class: "badge", text: `Generated ${a.generated_label}` }));
+  const body = el("div", { class: "answer-body" });
+  for (const n of a.notices || []) body.append(el("div", { class: `notice ${n.kind}` }, svg("shield"), el("div", { text: n.text })));
+  if (a.headline) body.append(el("p", { class: "ag-headline", text: a.headline }));
+  for (const s of a.sections || []) body.append(agentSection(a, s, trace));
+  if (!(a.sections || []).length && !a.headline) body.append(el("p", { class: "empty-answer", text: "No answer was produced. Please try rephrasing." }));
+  if ((a.follow_ups || []).length) {
+    body.append(el("div", { class: "followups" }, el("span", { class: "fu-label", text: "Ask next" }),
+      a.follow_ups.map((f) => el("button", { class: "fu", type: "button", onclick: () => ask(f), text: f }))));
+  }
+  const cited = citedSources(a);
+  if (cited.length) body.append(sourcesDetails(a, cited));
+  if ((a.trace || []).length) body.append(agentTrace(a));
+  const foot = el("div", { class: "answer-foot" }, agentVerify(a),
+    el("button", { class: "btn btn-ghost", type: "button", onclick: () => copyText(agentMarkdown(a), "Answer copied") }, svg("copy"), "Copy answer"));
+  const srcFoot = sourcesSummary({ sources: cited });
+  const clientBox = el("div", { class: "answer-client" }, a.client ? clientBar(a, mid, state.cid) : null);
+  return el("article", { class: "answer agent" }, head, body, foot,
+    srcFoot ? el("div", { class: "answer-sources" }, srcFoot) : null,
+    clientBox.childNodes.length ? clientBox : null);
+}
+
+function agentMarkdown(a) {
+  const out = [];
+  if (a.headline) out.push(`**${a.headline}**`, "");
+  for (const s of a.sections || []) {
+    const k = KIND[s.kind] || KIND.ai_suggestion;
+    out.push(`**${s.title}** _(${k.label})_`);
+    for (const p of s.points) {
+      out.push(`- ${p.quote && (p.mode || "verbatim") === "verbatim" ? `"${p.text}"` : p.text}${(p.citations || []).length ? " " + refs(a, p.citations) : ""}`
+        + ((p.unverified || []).length ? ` [check: ${p.unverified.join(", ")}]` : ""));
+    }
+    if (s.table && s.table.rows.length) {
+      out.push("", `| ${s.table.columns.join(" | ")} |`, `|${s.table.columns.map(() => "---").join("|")}|`,
+        ...s.table.rows.map((r) => `| ${r.join(" | ")} |`));
+    }
+    if ((s.research_tables || []).length) out.push("", ...tableMarkdownRows({ ...a, table: s.research_tables }));
+    if (k.note) out.push("", `_${k.note}_`);
+    out.push("");
+  }
+  const cited = citedSources(a);
+  if (cited.length) out.push("Sources:", ...sourceLines(a, new Set(cited.map((s) => s.n))), "");
+  out.push("Internal use only. Client data from the client book; AI suggestions are not OCBC research or investment advice.");
+  return out.join("\n");
 }
 
 // ------------------------------------------------------------------ Claude API switch
@@ -986,6 +1169,33 @@ function route(name, push = true) {
 }
 function closeNav() { $("app").classList.remove("nav-open"); $("scrim").hidden = $("drawer").hidden; }
 function autosize() { const t = $("prompt"); t.style.height = "auto"; t.style.height = Math.min(t.scrollHeight, 220) + "px"; }
+
+const MODE_HINT = {
+  auto: "Auto: research questions get OCBC research verbatim; client prep, ideas and other asks go to the agent.",
+  research: "Research mode: OCBC research only, verbatim and cited. No web search. No investment advice.",
+  agent: "Agent mode: client book, OCBC research and clearly labelled AI suggestions. No web or live prices.",
+};
+function setMode(m) {
+  state.mode = m;
+  try { localStorage.setItem("ra-mode", m); } catch (_) { /* private window: not remembered */ }
+  for (const b of document.querySelectorAll("#modeSwitch button")) {
+    b.setAttribute("aria-checked", String(b.dataset.mode === m));
+    b.tabIndex = b.dataset.mode === m ? 0 : -1;
+  }
+  $("composerHint").textContent = MODE_HINT[m];
+}
+document.querySelectorAll("#modeSwitch button").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
+$("modeSwitch").addEventListener("keydown", (e) => {
+  // Radio-group arrows: move the choice and the focus together.
+  const order = ["auto", "research", "agent"];
+  const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+  if (!step) return;
+  e.preventDefault();
+  const next = order[(order.indexOf(state.mode) + step + order.length) % order.length];
+  setMode(next);
+  document.querySelector(`#modeSwitch button[data-mode="${next}"]`).focus();
+});
+setMode(state.mode);
 
 $("composer").addEventListener("submit", (e) => { e.preventDefault(); ask($("prompt").value); });
 $("prompt").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask($("prompt").value); } });

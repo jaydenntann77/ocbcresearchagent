@@ -47,13 +47,23 @@
     <section class="view view-chat" id="viewChat">
       <div class="thread" id="thread" aria-live="polite"></div>
       <form class="composer" id="composer" autocomplete="off">
-        <label class="sr-only" for="prompt">Research question</label>
+        <label class="sr-only" for="prompt">Question</label>
         <textarea id="prompt" rows="1" maxlength="2000"
-                  placeholder="Ask about a forecast, view or risk…"></textarea>
+                  placeholder="Ask about a forecast, a client, a maturing deal…"></textarea>
         <button class="btn btn-primary send" id="send" type="submit" aria-label="Send">
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h11M11 5l5 5-5 5"/></svg>
         </button>
-        <div class="composer-hint">Answers draw only on ingested OCBC research PDFs. No web search. No investment advice.</div>
+        <div class="composer-foot">
+          <div class="mode-switch" id="modeSwitch" role="radiogroup" aria-label="Answer mode">
+            <button type="button" role="radio" data-mode="auto" aria-checked="true"
+                    title="The assistant decides: research questions get research, everything else the agent.">Auto</button>
+            <button type="button" role="radio" data-mode="research" aria-checked="false"
+                    title="OCBC research only - verbatim and cited.">Research</button>
+            <button type="button" role="radio" data-mode="agent" aria-checked="false"
+                    title="Client book, OCBC research and labelled AI suggestions.">Agent</button>
+          </div>
+          <div class="composer-hint" id="composerHint">Answers draw only on ingested OCBC research PDFs. No web search. No investment advice.</div>
+        </div>
       </form>
     </section>
 

@@ -41,8 +41,9 @@ print(json.dumps(r))
 
 
 def test_public_mode_gateway_rules():
+    # RA_HOSTED_MEMORY pinned off: a developer's .env may turn it on for their own hosted demo.
     env = dict(os.environ, RA_PUBLIC_MODE="1", APP_PASSWORD="s3cret-demo", RA_SESSION_SECRET="test-secret",
-               RA_TOKEN_ADMIN="a", RA_TOKEN_GATEWAY_ORCH="b", RA_TOKEN_GATEWAY_DOCS="c")
+               RA_TOKEN_ADMIN="a", RA_TOKEN_GATEWAY_ORCH="b", RA_TOKEN_GATEWAY_DOCS="c", RA_HOSTED_MEMORY="0")
     proc = subprocess.run([sys.executable, "-c", PROBE], cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)
     assert proc.returncode == 0, proc.stderr[-2000:]
     r = json.loads(proc.stdout.strip().splitlines()[-1])

@@ -183,6 +183,8 @@ def build_items(trades: list[dict], base: str, quote: str) -> list[Item]:
 # ------------------------------------------------------------------ wording helpers
 def amt(ccy: str, x: float) -> str:
     x = abs(x)
+    if x < 1e3:   # e.g. gold in ounces: "XAU 250", not "XAU 0k"
+        return f"{ccy} {x:,.0f}"
     return f"{ccy} {x / 1e6:.1f}m" if x >= 1e5 else f"{ccy} {x / 1e3:.0f}k"
 
 

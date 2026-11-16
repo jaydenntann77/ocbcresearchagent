@@ -36,8 +36,8 @@ from app.common.instruments import CURRENCIES, find_pairs  # noqa: E402
 from app.common.schemas import SPECIALIST_LABELS  # noqa: E402
 from app.common.security import require_token  # noqa: E402
 from app.common.timeutil import fmt_dt, fmt_range, now_sgt  # noqa: E402
-from app.orchestrator import (client_memory, composer, conversations, guardrails, llm, model_switch,  # noqa: E402
-                              planner, trade_note)
+from app.orchestrator import (agent, client_memory, composer, conversations, guardrails, llm,  # noqa: E402
+                              model_switch, planner, router, trade_note)
 from app.orchestrator.clients import ClientDataClient, ResearchClient, ServiceError, ValidatorClient  # noqa: E402
 
 app = FastAPI(title="Conversation API", docs_url=None, redoc_url=None, openapi_url=None)
@@ -53,6 +53,14 @@ SUGGESTIONS = [
     "What is OCBC's forecast for the Fed funds rate and 10-year UST yield?",
     "What is OCBC's latest view on JPY and the BoJ?",
 ]
+AGENT_SUGGESTIONS = [
+    "Brief me on Harbourline Logistics before my meeting",
+    "Which clients have deals maturing in the next 2 weeks?",
+    "What has Kestrel Semiconductor been trading recently?",
+    "Any hedging ideas for Lumina Property Trust?",
+    "What's a zero-cost collar and when would a USD earner use one?",
+]
+MODES = ("auto", "research", "agent")
 
 
 def corpus_meta() -> dict:
@@ -216,6 +224,82 @@ def attach_past_asks(client: dict) -> None:
         client["past_asks"] = past
 
 
+def agent_answer(question: str, client: dict | None, state: dict, emit) -> tuple[dict | None, str | None]:
+    """Agent mode: the tool-using agent, or - when no model can be used - a deterministic client-book
+    snapshot. Returns (None, reason) when neither can answer, so the caller shows research instead."""
+    status = llm.status()
+    if not status["key_present"]:
+        reason = "Agent mode needs the Claude API (no API key is configured)."
+    elif not status["available"]:
+        reason = "Agent mode needs the Claude API, which is OFF (type “turn on Claude API” to enable it)."
+    elif not conversations.take_model_call(config.MODEL_DAILY_CAP):
+        reason = "Today's budget for model calls has been used up, so agent mode is paused until tomorrow (SGT)."
+    else:
+        def research_fn(q: str) -> dict:
+            # The agent's research tool is the full research pipeline: specialists, validator, citations.
+            ans, _ = answer_question(q, {}, lambda t: emit(f"Research · {t}"))
+            return ans
+        names = {c["client_id"]: c.get("client_name") for c in (client or {}).get("candidates") or []
+                 if c.get("client_id") and c.get("client_name")}
+        try:
+            ctx = agent.context_block(client, fmt_dt(now_sgt()))
+            return agent.Agent(clientdata, research_fn, emit, names=names).run(
+                question, ctx, state.get("turns") or []), None
+        except agent.AgentUnavailable as exc:
+            reason = f"Agent mode could not run ({exc})"
+    snap = agent.snapshot(clientdata, client, question)
+    if snap:
+        snap["notices"].append({"kind": "info", "text": f"{reason} This snapshot comes straight from the client "
+                                                        f"book, with no AI suggestions."})
+        return snap, None
+    return None, reason
+
+
+def routed_answer(question: str, prior: dict, mode: str, emit) -> tuple[dict, dict]:
+    """Research mode or agent mode (app.orchestrator.router), with the client box for either."""
+    client = identify_client(question, prior, emit)
+    matched = bool(client and client["status"] == "match")
+    route = router.choose(question, client_matched=matched, last_mode=prior.get("last_mode"),
+                          forced=mode if mode != "auto" else None)
+    answer, why_not = None, None
+    if route == "agent":
+        answer, why_not = agent_answer(question, client, prior, emit)
+    if answer is None:
+        # Research sees the question with the client's name removed.
+        research_q = (client or {}).get("research_question") or question
+        answer, state = answer_question(research_q, prior, emit)
+        answer["question"] = question
+        if route == "auto" and answer["status"] in ("clarify", "info") and llm.status()["available"]:
+            # Research could not place it ("what's a collar?", "hi"): answer as the assistant instead.
+            tried, _ = agent_answer(question, client, prior, emit)
+            if tried:
+                answer, state = tried, dict(prior)
+        elif why_not:
+            answer["notices"] = [{"kind": "info", "text": f"{why_not} Showing OCBC research instead."},
+                                 *answer.get("notices", [])]
+    else:
+        state = dict(prior)
+    if answer.get("kind") == "agent":
+        # Agent answers keep the client line (to log the ask) but not the research trade note.
+        if matched:
+            answer["client"] = client
+            state["client"] = client["candidates"][0]
+        elif prior.get("client"):
+            state["client"] = prior["client"]
+        return answer, state
+    if client:
+        answer["client"] = client
+        if client["status"] == "match":
+            state["client"] = client["candidates"][0]
+            attach_trade_context(client, answer, question, emit)
+            attach_past_asks(client)
+        elif prior.get("client"):
+            state["client"] = prior["client"]
+    elif prior.get("client"):
+        state["client"] = prior["client"]
+    return answer, state
+
+
 def pick_reply(cid: str, question: str, state: dict, pending: dict, pick: dict, owner: str, emit):
     """The next message answered "which client?" ("b", "Meridian Foods"): resolve the earlier
     answer's client and reply with the client box for that earlier question."""
@@ -262,7 +346,8 @@ def set_demo(payload: dict = Body(...)):
 
 @app.get("/v1/meta", dependencies=[Depends(auth)])
 def meta():
-    out = {"model": llm.status(), "suggestions": SUGGESTIONS, "now": now_sgt().isoformat(),
+    out = {"model": llm.status(), "suggestions": SUGGESTIONS, "agent_suggestions": AGENT_SUGGESTIONS,
+           "now": now_sgt().isoformat(),
            "now_label": fmt_dt(now_sgt()), "public_mode": config.PUBLIC_MODE}
     try:
         out["corpus"] = corpus_meta()
@@ -296,6 +381,7 @@ def chat(payload: dict = Body(...), x_ra_session: str = Header(default="local"))
     question = (payload.get("message") or "").strip()
     if not question or len(question) > 2000:
         raise HTTPException(400, "message must be 1-2000 characters")
+    mode = payload.get("mode") if payload.get("mode") in MODES else "auto"
     cid = payload.get("conversation_id")
     if not cid or not conversations.exists(cid, x_ra_session):
         cid = conversations.create(question, x_ra_session)
@@ -320,21 +406,12 @@ def chat(payload: dict = Body(...), x_ra_session: str = Header(default="local"))
             elif pick:
                 answer, state = pick_reply(cid, question, prior, pending, pick, x_ra_session, emit)
             else:
-                client = identify_client(question, prior, emit)
-                # Research sees the question with the client's name removed.
-                research_q = (client or {}).get("research_question") or question
-                answer, state = answer_question(research_q, prior, emit)
-                answer["question"] = question
-                if client:
-                    answer["client"] = client
-                    if client["status"] == "match":
-                        state["client"] = client["candidates"][0]
-                        attach_trade_context(client, answer, question, emit)
-                        attach_past_asks(client)
-                    elif prior.get("client"):
-                        state["client"] = prior["client"]
-                elif prior.get("client"):
-                    state["client"] = prior["client"]
+                answer, state = routed_answer(question, prior, mode, emit)
+                if answer.get("status") != "error":
+                    # Both modes keep a short memory of the conversation for follow-ups.
+                    state["last_mode"] = "agent" if answer.get("kind") == "agent" else "research"
+                    state["turns"] = [*(prior.get("turns") or [])[-5:],
+                                      {"q": question, "a": agent.turn_summary(answer)}]
         except Exception as exc:  # noqa: BLE001
             answer = _simple(question, "error", f"Something went wrong while preparing the answer "
                                                 f"({type(exc).__name__}). No unverified content is shown.")
@@ -459,8 +536,8 @@ def client_log(cid: str, mid: str, payload: dict = Body(...), x_ra_session: str 
         if not pick:
             raise HTTPException(400, "choose one of the clients offered for this answer")
         summary = (" ".join(c.get("text", "") for c in (source_answer.get("direct") or [])[:2])
-                   or source_answer.get("message") or "")
-        plan = source_answer.get("plan") or {}
+                   or source_answer.get("headline") or source_answer.get("message") or "")
+        plan = source_answer.get("plan") or ({"lead": "Agent"} if source_answer.get("kind") == "agent" else {})
         try:
             row = clientdata.log_interaction({
                 "client_id": pick["client_id"], "contact_id": pick.get("contact_id"), "question": question,
