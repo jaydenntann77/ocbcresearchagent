@@ -37,6 +37,9 @@ from app.orchestrator.clients import ServiceError
 MAX_TURNS = 8               # model calls per answer (the last one may not call tools)
 MAX_RESEARCH_CALLS = 2      # full research-pipeline runs per answer
 MAX_SECTIONS, MAX_POINTS, MAX_ROWS = 6, 8, 15
+# Research limitations that research mode shows under "Please note"; agent answers always carry them too.
+MATERIAL_LIMITS = {"horizon_not_covered", "no_relevant_information", "document_inaccessible", "extraction_failed",
+                   "conflicting_sources", "missing_coverage", "error", "horizon_passed"}
 PLAYBOOK_PATH = Path(__file__).with_name("playbook.md")
 KINDS = ("client_data", "ocbc_research", "ai_suggestion", "general")
 
@@ -71,7 +74,8 @@ next. Every section has a kind:
   lists of deals or maturities.
 - ocbc_research: list the research item ids to quote in refs (one or more per point) and leave text empty.
   The app shows those items exactly as written, with their citations. Never paraphrase OCBC research and never
-  state an OCBC view, forecast or recommendation in any other section.
+  state an OCBC view, forecast or recommendation in any other section. Gaps, conflicts and qualifications the
+  research reports are attached to your answer automatically, so you do not need to repeat them.
 - ai_suggestion: your own ideas for the salesperson - talking points, questions to ask, a deal that may be
   worth rolling, or a simple hedge (outright forward, FX swap roll, vanilla option, zero-cost collar,
   participating forward, layered forwards). Tie each idea to the client data it rests on (refs), say why it
@@ -166,6 +170,13 @@ OCBC_VIEW_RE = re.compile(r"\b(OCBC|house view|our (?:house )?(?:view|forecast))
 
 
 QUOTED_RE = re.compile(r"\"[^\"]*\"|“[^”]*”")   # a client's own quoted question is not a claim about OCBC's view
+ASK_RE = re.compile(r"\b(ask(?:s|ed|ing)?|request(?:s|ed)?|want(?:s|ed)?|question\w*|enquir\w*|inquir\w*)\b", re.I)
+
+
+def claims_ocbc_view(text: str) -> bool:
+    """A sentence that attributes a view or forecast to OCBC, other than one reporting what someone asked."""
+    t = QUOTED_RE.sub(" ", text or "")
+    return any(OCBC_VIEW_RE.search(s) and not ASK_RE.search(s) for s in re.split(r"(?<=[.?!;])\s+", t))
 
 
 def numbers(text: str) -> list[tuple[str, float]]:
@@ -198,6 +209,7 @@ class Agent:
         self._src_key: dict[tuple, int] = {}
         self.names: dict[str, str] = dict(names or {})   # client_id -> name, for progress lines
         self.research_calls = 0
+        self.research_log: list[dict] = []       # per research call: the question and its caveats
         self._lock = threading.Lock()            # tool calls in one turn run in parallel
         self.usage = {"input_tokens": 0, "output_tokens": 0, "cache_read_input_tokens": 0,
                       "cache_creation_input_tokens": 0}
@@ -327,14 +339,21 @@ class Agent:
     def _research(self, question: str) -> dict:
         ans = self.research_fn(question)          # slow: the full research pipeline, outside the lock
         with self._lock:
-            return self._research_items(ans)
+            return self._research_items(question, ans)
 
-    def _research_items(self, ans: dict) -> dict:
+    def _research_items(self, question: str, ans: dict) -> dict:
         local = {s["n"]: s for s in ans.get("sources") or []}
 
         def remap(nums):
             return [self._source(local[n]) for n in nums or [] if n in local]
 
+        # Gaps and conflicts are attached to the answer by code, so the model cannot leave them out.
+        caveats = [l["text"] for l in ans.get("limitations") or [] if l.get("type") in MATERIAL_LIMITS]
+        caveats += [c["text"] for c in ans.get("conflicts") or [] if c.get("text")]
+        if not (ans.get("direct") or ans.get("table")) and (ans.get("no_evidence_message") or ans.get("message")):
+            caveats.append(ans.get("no_evidence_message") or ans.get("message"))
+        self.research_log.append({"question": question, "status": ans.get("status"),
+                                  "caveats": list(dict.fromkeys(c for c in caveats if c))})
         out_items = []
 
         def add(kind: str, text: str, cites: list[int], rows=None, mode: str | None = None):
@@ -357,6 +376,12 @@ class Agent:
             add("forecast", f"{inst} forecast: {path}" + (f" (published {pub})" if pub else ""),
                 [], rows)
             self.items[f"R{len(self.items)}"]["citations"] = sorted({n for r in rows for n in r["citations"]})
+        # The forecast's own published qualifications travel with its table, whatever the model picks.
+        table_notes = [{"text": c["text"], "citations": remap(c.get("citations")), "mode": "verbatim"}
+                       for c in ans.get("table_notes") or [] if c.get("mode") == "verbatim"]
+        for it in out_items:
+            if it["type"] == "forecast":
+                self.items[it["id"]]["notes"] = table_notes
         for kind, key, n in (("note", "table_notes", 3), ("rationale", "rationale", 6), ("risk", "risks", 4)):
             for c in (ans.get(key) or [])[:n]:
                 add(kind, c["text"], c.get("citations"), mode=c.get("mode"))
@@ -451,7 +476,7 @@ class Agent:
         for s in (data.get("sections") or [])[:MAX_SECTIONS]:
             kind = s.get("kind") if s.get("kind") in KINDS else "ai_suggestion"
             out = {"title": str(s.get("title") or "")[:120], "kind": kind, "points": [], "table": None,
-                   "research_tables": []}
+                   "research_tables": [], "research_notes": []}
             for p in (s.get("points") or [])[:MAX_POINTS]:
                 refs = [r for r in (p.get("refs") or []) if isinstance(r, str)][:8]
                 if kind == "ocbc_research":
@@ -464,6 +489,7 @@ class Agent:
                         quoted.add(r)
                         if it["type"] == "forecast":
                             out["research_tables"] += [row for row in it["rows"] if row not in out["research_tables"]]
+                            out["research_notes"] += [n for n in it.get("notes") or [] if n not in out["research_notes"]]
                         else:
                             out["points"].append({"text": it["text"], "citations": it["citations"], "quote": True,
                                                   "item": r, "type": it["type"], "mode": it["mode"]})
@@ -482,7 +508,9 @@ class Agent:
                     if bad:
                         point["unverified"] = bad
                         unverified += len(bad)
-                if kind != "ocbc_research" and OCBC_VIEW_RE.search(QUOTED_RE.sub(" ", text)):
+                # AI-written sections only: client-book sections restate logged data, such as the
+                # questions a client asked about OCBC's view.
+                if kind in ("ai_suggestion", "general") and claims_ocbc_view(text):
                     point["view_flag"] = True
                     flagged += 1
                 out["points"].append(point)
@@ -502,7 +530,9 @@ class Agent:
             if out["points"] or out["table"] or out["research_tables"]:
                 sections.append(out)
         used = sorted({n for s in sections for p in s["points"] for n in p.get("citations", [])}
-                      | {n for s in sections for r in s["research_tables"] for n in r.get("citations", [])})
+                      | {n for s in sections for r in s["research_tables"] + s["research_notes"]
+                         for n in r.get("citations", [])})
+        caveats = list(dict.fromkeys(c for r in self.research_log for c in r["caveats"]))
         now = now_sgt()
         return {
             "answer_id": f"G-{uuid.uuid4().hex[:10]}", "kind": "agent", "question": question,
@@ -510,6 +540,7 @@ class Agent:
             "status": "complete" if sections else "partial", "mode": "agent", "notices": [],
             "headline": str(data.get("headline") or "")[:400], "sections": sections,
             "follow_ups": [str(f)[:160] for f in (data.get("follow_ups") or [])[:3] if str(f).strip()],
+            "research_caveats": caveats,
             "trace": self.trace, "sources": self.sources, "cited_sources": used,
             "verification": {"figures_checked": checked, "unverified": unverified, "research_quoted": len(quoted),
                              "research_dropped": dropped, "view_flags": flagged,

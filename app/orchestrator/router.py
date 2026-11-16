@@ -8,7 +8,8 @@
 * auto     - neither is clear: try research first; if research cannot place the question, the agent
   answers it (when the model is available).
 
-The user can also pin a mode with the Auto / Research / Agent switch next to the chat box.
+The UI has no mode switch: every question goes through choose(). The chat API still accepts
+"mode": "research" | "agent" to pin a path (the tests use it).
 """
 from __future__ import annotations
 

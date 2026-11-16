@@ -34,8 +34,13 @@ RESEARCH = {
                "unit": None, "publication_label": "2 Nov 2026"},
               {"instrument": "USD/SGD", "horizon": "4Q27", "value": "1.2700", "citations": [2], "horizon_kind": "absolute",
                "unit": None, "publication_label": "2 Nov 2026"}],
-    "table_notes": [], "rationale": [{"text": "A softer USD backdrop supports the SGD.", "citations": [1]}],
-    "risks": [], "limitations": [],
+    "table_notes": [{"text": "Not meant to serve as point forecasts.", "citations": [2], "mode": "verbatim"},
+                    {"text": "Our forecasts imply a gradual path.", "citations": [1], "mode": "summary"}],
+    "rationale": [{"text": "A softer USD backdrop supports the SGD.", "citations": [1]}],
+    "risks": [],
+    "limitations": [{"type": "horizon_not_covered", "text": "No verified forecast for the 2028 horizon."},
+                    {"type": "note", "text": "3M/6M/12M horizons are relative."}],
+    "conflicts": [{"text": "Two reports differ on 4Q26.", "resolution": "unresolved"}],
     "sources": [{"n": 1, "doc_id": "d1", "pdf_page": 3, "excerpt": "We expect ...", "title": "FX Weekly"},
                 {"n": 2, "doc_id": "d2", "pdf_page": 1, "excerpt": "Forecast table", "title": "FX Monthly"}],
 }
@@ -155,6 +160,11 @@ def test_tool_loop_and_enforced_checks():
     assert rpts[0]["quote"] and rpts[0]["citations"] == [1]
     assert [r["value"] for r in secs["ocbc_research"]["research_tables"]] == ["1.2900", "1.2700"]
     assert secs["ocbc_research"]["research_tables"][0]["citations"] == [2]
+    # The forecast's published qualification travels with its table; gaps and conflicts are attached by
+    # code whatever the model chose to show (minor notes are not).
+    assert secs["ocbc_research"]["research_notes"] == [
+        {"text": "Not meant to serve as point forecasts.", "citations": [2], "mode": "verbatim"}]
+    assert answer["research_caveats"] == ["No verified forecast for the 2028 horizon.", "Two reports differ on 4Q26."]
     assert answer["verification"]["research_dropped"] == 1
     # ai_suggestion: figures from the client book pass; a view attributed to OCBC is flagged; the table
     # cell with an invented deal is flagged.
@@ -227,12 +237,19 @@ def test_snapshot_without_a_model():
 
 
 def test_quoted_client_question_is_not_an_ocbc_view():
-    data = {"headline": "h", "follow_ups": [], "sections": [{"title": "Asks", "kind": "client_data", "table": None,
+    data = {"headline": "h", "follow_ups": [], "sections": [{"title": "Asks", "kind": "ai_suggestion", "table": None,
             "points": [{"text": 'On 9 Oct he asked "Where does OCBC see USD/CNH by end-2026?"', "refs": []},
-                       {"text": "OCBC expects the SGD to firm.", "refs": []}]}]}
+                       {"text": "OCBC expects the SGD to firm.", "refs": []},
+                       {"text": "16 Sep: asked for OCBC's 12-month USD/SGD forecast.", "refs": []},
+                       {"text": "Jimmy asked about rates. OCBC sees the Fed cutting.", "refs": []}]}]}
     answer, *_ = run_agent([final(data)])
     pts = answer["sections"][0]["points"]
     assert "view_flag" not in pts[0] and pts[1]["view_flag"] is True
+    assert "view_flag" not in pts[2]          # reports what the client asked for
+    assert pts[3]["view_flag"] is True        # the ask is in another sentence; the claim still counts
+    data["sections"][0]["kind"] = "client_data"   # logged client data is never flagged
+    answer, *_ = run_agent([final(data)])
+    assert not any("view_flag" in p for p in answer["sections"][0]["points"])
 
 
 def test_book_views_send_the_client_as_a_filter():

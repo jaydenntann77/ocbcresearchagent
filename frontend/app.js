@@ -2,16 +2,9 @@
 // textContent (never innerHTML) - PDF text is untrusted evidence.
 
 const $ = (id) => document.getElementById(id);
-const state = { cid: null, answers: new Map(), meta: null, busy: false, adminTimer: null, mode: readMode() };
-
-// Answer mode for the next question: auto (the router decides), research (OCBC research only,
-// verbatim) or agent (client book + research + labelled AI suggestions). Remembered per browser.
-function readMode() {
-  try {
-    const m = localStorage.getItem("ra-mode");
-    return ["auto", "research", "agent"].includes(m) ? m : "auto";
-  } catch (_) { return "auto"; }
-}
+// One chat box: the server decides per question whether OCBC research or the assistant answers
+// (app/orchestrator/router.py), and each answer is labelled with the path that produced it.
+const state = { cid: null, answers: new Map(), meta: null, busy: false, adminTimer: null };
 
 const ICON = {
   check: '<path d="M4 10.5l4 4 8-9"/>',
@@ -194,7 +187,7 @@ function renderEmpty() {
     el("h1", { text: "OCBC research and client insights — with every number traceable." }),
     el("p", { text: "Ask for OCBC's forecasts, rationale or risks and get OCBC's research, cited to the page and validated. Or use it as your assistant — brief me on a client, what's maturing, simple hedging ideas — answered from the client book, with every section labelled by where it came from." }),
     group("OCBC research", "ocbc_research", "forecasts, views and risks, cited to the page", research.slice(0, 3), "spark"),
-    group("Client insights · agent", "client_data", "meeting prep, maturities, ideas", agentAsks.slice(0, 4), "bolt"),
+    group("Client insights · assistant", "client_data", "meeting prep, maturities, ideas", agentAsks.slice(0, 4), "bolt"),
     el("div", { class: "hero-note", text: "Suggested questions are examples only. Client data in this demo is synthetic." }),
   ));
 }
@@ -236,7 +229,7 @@ async function ask(question) {
   autosize();
   try {
     const res = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: question, conversation_id: state.cid, mode: state.mode }) });
+      body: JSON.stringify({ message: question, conversation_id: state.cid }) });
     if (res.status === 401) { prog.done(); showLogin(); return; }
     if (!res.ok || !res.body) {
       let detail = `HTTP ${res.status}`;
@@ -485,6 +478,8 @@ function renderAnswer(a, mid) {
   if (a.answer_id) state.answers.set(a.answer_id, a);
   const [statusText, statusCls] = STATUS[a.status] || [a.status, ""];
   const head = el("div", { class: "answer-head" },
+    // Which path answered: OCBC research (this renderer) or the assistant (renderAgentAnswer).
+    a.mode && a.mode !== "none" ? el("span", { class: "badge red", title: "Answered from OCBC research only, cited and validated.", text: "OCBC research" }) : null,
     a.status !== "complete" ? el("span", { class: `badge ${statusCls}`, text: statusText }) : null,
     el("span", { class: "spacer" }),
     el("span", { class: "badge", text: `Generated ${a.generated_label}` }));
@@ -628,7 +623,9 @@ function agentTable(t) {
 
 function agentSection(a, s, trace) {
   const k = KIND[s.kind] || KIND.ai_suggestion;
-  const forecast = (s.research_tables || []).length ? renderTable({ ...a, table: s.research_tables, table_notes: [] }) : null;
+  // The forecast's own published qualifications (research_notes) always travel with its table.
+  const forecast = (s.research_tables || []).length
+    ? renderTable({ ...a, table: s.research_tables, table_notes: s.research_notes || [] }) : null;
   return el("section", { class: `ag-sec k-${s.kind}` },
     el("div", { class: "ag-sec-head" }, el("span", { class: `ag-kind k-${s.kind}`, text: k.label }), el("h3", { text: s.title })),
     s.points.length ? el("ul", { class: "ag-points" }, s.points.map((p) => agentPoint(a, p, trace))) : null,
@@ -678,7 +675,8 @@ function renderAgentAnswer(a, mid) {
   const trace = new Map((a.trace || []).map((t) => [t.id, t]));
   const g = a.agent || {};
   const head = el("div", { class: "answer-head" },
-    el("span", { class: "badge agent" }, svg("bolt"), g.deterministic ? "Client-book snapshot" : "Agent mode"),
+    el("span", { class: "badge agent", title: "Answered by the assistant from the client book and OCBC research; every section is labelled." },
+      svg("bolt"), g.deterministic ? "Client-book snapshot" : "Assistant"),
     a.status !== "complete" ? el("span", { class: "badge warn", text: "Partial" }) : null,
     el("span", { class: "spacer" }),
     el("span", { class: "badge", text: `Generated ${a.generated_label}` }));
@@ -687,6 +685,11 @@ function renderAgentAnswer(a, mid) {
   if (a.headline) body.append(el("p", { class: "ag-headline", text: a.headline }));
   for (const s of a.sections || []) body.append(agentSection(a, s, trace));
   if (!(a.sections || []).length && !a.headline) body.append(el("p", { class: "empty-answer", text: "No answer was produced. Please try rephrasing." }));
+  // Gaps and conflicts OCBC research reported. Attached by the server, so the AI cannot leave them out.
+  if ((a.research_caveats || []).length) {
+    body.append(el("div", { class: "section please-note" }, el("h3", { text: "Please note (from OCBC research)" }),
+      el("ul", { class: "limits" }, a.research_caveats.map((t) => el("li", { text: t })))));
+  }
   if ((a.follow_ups || []).length) {
     body.append(el("div", { class: "followups" }, el("span", { class: "fu-label", text: "Ask next" }),
       a.follow_ups.map((f) => el("button", { class: "fu", type: "button", onclick: () => ask(f), text: f }))));
@@ -717,10 +720,15 @@ function agentMarkdown(a) {
       out.push("", `| ${s.table.columns.join(" | ")} |`, `|${s.table.columns.map(() => "---").join("|")}|`,
         ...s.table.rows.map((r) => `| ${r.join(" | ")} |`));
     }
-    if ((s.research_tables || []).length) out.push("", ...tableMarkdownRows({ ...a, table: s.research_tables }));
+    if ((s.research_tables || []).length) {
+      out.push("", ...tableMarkdownRows({ ...a, table: s.research_tables }));
+      for (const n of s.research_notes || []) out.push(`${n.text} ${refs(a, n.citations)}`.trim());
+    }
     if (k.note) out.push("", `_${k.note}_`);
     out.push("");
   }
+  for (const t of a.research_caveats || []) out.push(`Note (OCBC research): ${t}`);
+  if ((a.research_caveats || []).length) out.push("");
   const cited = citedSources(a);
   if (cited.length) out.push("Sources:", ...sourceLines(a, new Set(cited.map((s) => s.n))), "");
   out.push("Internal use only. Client data from the client book; AI suggestions are not OCBC research or investment advice.");
@@ -1169,33 +1177,6 @@ function route(name, push = true) {
 }
 function closeNav() { $("app").classList.remove("nav-open"); $("scrim").hidden = $("drawer").hidden; }
 function autosize() { const t = $("prompt"); t.style.height = "auto"; t.style.height = Math.min(t.scrollHeight, 220) + "px"; }
-
-const MODE_HINT = {
-  auto: "Auto: research questions get OCBC research verbatim; client prep, ideas and other asks go to the agent.",
-  research: "Research mode: OCBC research only, verbatim and cited. No web search. No investment advice.",
-  agent: "Agent mode: client book, OCBC research and clearly labelled AI suggestions. No web or live prices.",
-};
-function setMode(m) {
-  state.mode = m;
-  try { localStorage.setItem("ra-mode", m); } catch (_) { /* private window: not remembered */ }
-  for (const b of document.querySelectorAll("#modeSwitch button")) {
-    b.setAttribute("aria-checked", String(b.dataset.mode === m));
-    b.tabIndex = b.dataset.mode === m ? 0 : -1;
-  }
-  $("composerHint").textContent = MODE_HINT[m];
-}
-document.querySelectorAll("#modeSwitch button").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
-$("modeSwitch").addEventListener("keydown", (e) => {
-  // Radio-group arrows: move the choice and the focus together.
-  const order = ["auto", "research", "agent"];
-  const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
-  if (!step) return;
-  e.preventDefault();
-  const next = order[(order.indexOf(state.mode) + step + order.length) % order.length];
-  setMode(next);
-  document.querySelector(`#modeSwitch button[data-mode="${next}"]`).focus();
-});
-setMode(state.mode);
 
 $("composer").addEventListener("submit", (e) => { e.preventDefault(); ask($("prompt").value); });
 $("prompt").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask($("prompt").value); } });
