@@ -393,5 +393,9 @@ table.list td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .trade-ideas { margin-top: 2px; padding: 8px 12px; background: var(--violet-tint, #f1ecfd); border-radius: 8px; }
 .trade-ideas h5 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; color: var(--violet, #6233c7); }
 .copy-summary { display: flex; justify-content: flex-end; margin: -4px 0 14px; }
-.client-insights { margin: 8px 0; padding: 8px 12px; background: #f7f8fa; border-radius: 8px; }
-.client-insights h4 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; color: var(--ink-3); }
+/* Insights (client box and client-memory card): green so they stand out. */
+.insights { padding: 10px 14px; background: #e8f6ec; border: 1px solid #b7e0c2; border-left: 4px solid #1f9d55; border-radius: 0 8px 8px 0; }
+.client-insights { margin: 8px 0; }
+.insights h4 { margin: 0 0 6px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #157a41; }
+.insights ul.limits { margin: 0; }
+.insights li { color: #14532d; }
