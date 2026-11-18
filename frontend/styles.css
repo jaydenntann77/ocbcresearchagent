@@ -399,3 +399,5 @@ table.list td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .insights h4 { margin: 0 0 6px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #157a41; }
 .insights ul.limits { margin: 0; }
 .insights li { color: #14532d; }
+.trade-ideas.none { background: #f7f8fa; }
+.trade-ideas.none h5 { color: var(--ink-3); }

@@ -848,7 +848,11 @@ function tradeContext(ctxs) {
     x.research_link ? el("div", { class: "trade-line" },
       el("strong", { text: `${x.research_link.label}: ` }), x.research_link.text) : null,
     (x.ideas || []).length ? el("div", { class: "trade-ideas" }, el("h5", { text: "Ideas" }),
-      bullets(x.ideas.map((i) => i.text))) : null,
+      bullets(x.ideas.map((i) => i.text)))
+      // No rule fired: say so, rather than leave the box missing. Not shown when the pair was never traded.
+      : x.kind !== "never" ? el("div", { class: "trade-ideas none" }, el("h5", { text: "Ideas" }),
+        el("div", { class: "muted", text: `None for ${x.pair} right now: no maturity within 14 days, no likely next ask, no unusual size or trading rhythm.` }))
+      : null,
   ];
   return el("div", { class: "trade-ctx" }, ctxs.map((x) => el("div", { class: "trade-pair" },
     el("div", { class: "trade-head" }, el("span", { class: "badge", text: "Internal client data" }),
