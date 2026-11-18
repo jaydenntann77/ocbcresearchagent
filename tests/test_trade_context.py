@@ -203,7 +203,9 @@ def test_trade_list_is_complete_open_first_then_recent_closed():
     rows = c["trades"]
     assert len(rows) == c["trade_count"] == 20 and c["open_count"] == 11
     assert c["count_label"] == "20 trades (11 open)"
-    assert list(rows[0]) == ["trade_date", "side", "notional", "product", "maturity", "status", "note", "open"]
+    assert list(rows[0]) == ["trade_date", "side", "notional", "product", "maturity", "status", "note", "open",
+                             "trade_iso"]
+    assert all(len(r["trade_iso"]) == 10 for r in rows)        # ISO date, so the UI can show the newest 20
     assert all(r["open"] for r in rows[:11]) and not any(r["open"] for r in rows[11:])
     assert rows[0]["maturity"] == "19 Nov 2026"                # soonest maturity first
     assert {r["note"] for r in rows} >= {"offsets BUY USD 7.7m (19 May)", "offsets BUY USD 47.0m (3 Jul)",

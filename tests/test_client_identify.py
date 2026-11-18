@@ -53,3 +53,26 @@ def test_no_client_leaves_question_untouched():
 def test_lowercase_first_names_do_not_match():
     # "grace" / "ben" as ordinary words must not be read as contacts
     assert ident("by the grace of the Fed, will ben bernanke-era QE return? USD/SGD").status == "none"
+
+
+@pytest.mark.parametrize("question, client, contact", [
+    ("jimmy from habourline logsitic asked me about usd/sgd", "Harbourline Logistics Pte Ltd", "Jimmy Tan"),
+    ("Rachel from habourline wants usd/cnh", "Harbourline Logistics Pte Ltd", "Rachel Goh"),
+    ("kestral semi wants usd/jpy", "Kestrel Semiconductor Pte Ltd", None),
+    ("pinacle asset mgmt wants eur/usd", "Pinnacle Asset Management", None),
+])
+def test_misspelt_company_still_matches(question, client, contact):
+    r = ident(question)
+    assert r.status == "match"
+    assert (r.candidates[0].client_name, r.candidates[0].contact_name) == (client, contact)
+
+
+def test_misspelt_similar_name_stays_ambiguous():
+    assert ident("meridan asked about aud").status == "ambiguous"
+
+
+@pytest.mark.parametrize("question", ["what about the silver outlook", "the logistics outlook for asia",
+                                      "grace period on the forward", "jimmy wants usd/sgd"])
+def test_no_typo_match_on_ordinary_words(question):
+    # Only a capitalised first name, or one next to its company, counts as a person.
+    assert ident(question).status == "none"

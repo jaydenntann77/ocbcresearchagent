@@ -497,6 +497,7 @@ function renderAnswer(a, mid) {
   } else if (a.no_evidence_message) {
     body.append(el("div", { class: "section direct" }, el("h3", { text: "Executive summary" }), el("p", { class: "lead", text: a.no_evidence_message })));
   }
+  if ((a.direct && a.direct.length) || a.no_evidence_message) body.append(copySummaryRow(a));
   if (a.table && a.table.length) body.append(el("div", { class: "section" }, renderTable(a)));
   const implication = (a.table_notes || []).filter((n) => n.mode !== "verbatim");
   if (implication.length) {
@@ -517,17 +518,19 @@ function renderAnswer(a, mid) {
   if (a.suggestions && a.suggestions.length) {
     body.append(el("div", { class: "suggestions" }, a.suggestions.map((s) => el("button", { class: "suggestion", type: "button", onclick: () => ask(s) }, svg("spark"), el("span", { text: s })))));
   }
+  // Supporting research, sources and the audit go at the very end, after the client box.
+  const tail = el("div", { class: "answer-tail" });
   const support = [...(a.rationale || []), ...(a.risks || []), ...(a.scenarios || [])];
   if (support.length) {
-    body.append(el("details", { class: "more" }, el("summary", {}, "Supporting research", el("span", { class: "count", text: ` · ${support.length} excerpts` })),
+    tail.append(el("details", { class: "more" }, el("summary", {}, "Supporting research", el("span", { class: "count", text: ` · ${support.length} excerpts` })),
       a.rationale.length ? claimList(a, a.rationale) : null,
       a.risks.length ? el("div", {}, el("h4", { text: "Risks" }), claimList(a, a.risks, "risk")) : null,
       (a.scenarios || []).length ? el("div", {}, el("h4", { text: "Scenarios" }), claimList(a, a.scenarios)) : null));
   }
-  if (a.sources && a.sources.length) body.append(sourcesDetails(a, a.sources));
+  if (a.sources && a.sources.length) tail.append(sourcesDetails(a, a.sources));
   const fr = a.freshness || {};
   if (a.plan || (a.sources && a.sources.length)) {
-    body.append(el("details", { class: "audit" }, el("summary", { text: "How this answer was produced" }),
+    tail.append(el("details", { class: "audit" }, el("summary", { text: "How this answer was produced" }),
       a.sources && a.sources.length ? el("div", { class: "dates-strip" },
         el("span", {}, "Sources published ", el("b", { text: fr.research_published || "—" })),
         el("span", {}, "Corpus window ", el("b", { text: fr.corpus_window || "—" })),
@@ -545,7 +548,6 @@ function renderAnswer(a, mid) {
   const foot = el("div", { class: "answer-foot" });
   if (a.sources && a.sources.length) {
     foot.append(el("span", { class: "verify" }, svg("check"), `${a.sources.length} citations verified against source pages${a.validation && a.validation.removed ? ` · ${a.validation.removed} unsupported item(s) removed` : ""}`));
-    foot.append(el("button", { class: "btn btn-ghost", type: "button", onclick: () => copyText(answerMarkdown(a), "Answer copied") }, svg("copy"), "Copy answer"));
     if (a.table && a.table.length) foot.append(el("button", { class: "btn btn-ghost", type: "button", onclick: () => copyText(tableMarkdown(a), "Table copied") }, svg("copy"), "Copy table"));
   }
   // The research answer comes first; everything about the client (picker, client line, trade
@@ -555,9 +557,12 @@ function renderAnswer(a, mid) {
     // The older first-name-only memory card only when the client box has not identified anyone.
     a.pending_memory && !a.client ? memoryCard(a.pending_memory) : null);
   const sourcesFooter = sourcesSummary(a);   // null when the answer cites no sources
-  return el("article", { class: "answer" }, head, body, foot.childNodes.length ? foot : null,
+  // Answer, then the client box, then the citation check / copy / report ages, then the dropdowns.
+  return el("article", { class: "answer" }, head, body,
+    clientBox.childNodes.length ? clientBox : null,
+    foot.childNodes.length ? foot : null,
     sourcesFooter ? el("div", { class: "answer-sources" }, sourcesFooter) : null,
-    clientBox.childNodes.length ? clientBox : null);
+    tail.childNodes.length ? tail : null);
 }
 
 // ------------------------------------------------------------------ agent mode answers
@@ -633,6 +638,61 @@ function agentSection(a, s, trace) {
     k.note ? el("div", { class: "ag-note", text: k.note }) : null);
 }
 
+// Shown in this order: client book, talking points & trade ideas, OCBC research, general explanations.
+const SECTION_ORDER = ["client_data", "ai_suggestion", "ocbc_research", "general"];
+function orderedSections(a) {
+  const rank = (s) => { const i = SECTION_ORDER.indexOf(s.kind); return i < 0 ? SECTION_ORDER.length : i; };
+  return [...(a.sections || [])].sort((p, q) => rank(p) - rank(q));
+}
+
+function execSummary(a) {
+  // OCBC's view in brief first (validated research, exactly as produced, with citations), then the
+  // AI's one-paragraph brief for the salesperson.
+  const research = a.summary_research || [];
+  return el("div", { class: "ag-summary" },
+    el("h3", { text: "Executive summary" }),
+    research.length ? el("div", { class: "ag-sum-research" },
+      el("span", { class: "ag-kind k-ocbc_research", text: "OCBC research in brief" }),
+      el("ul", { class: "ag-points" }, research.map((p) => agentPoint(a, { ...p, quote: true }, new Map())))) : null,
+    el("p", { class: "ag-headline", text: a.headline }),
+    (a.headline_unverified || []).map((x) => el("span", { class: "badge warn chk", text: `Check ${x}`,
+      title: "This figure was not found in the data the agent read. Check it before using it." })),
+    a.headline_view_flag ? el("span", { class: "badge warn chk", text: "Mentions an OCBC view — see the quoted research" }) : null,
+    copySummaryRow(a));
+}
+
+// "Copy summary" sits right under the executive summary: plain paragraphs, ready for an email.
+function copySummaryRow(a) {
+  return el("div", { class: "copy-summary" },
+    el("button", { class: "btn btn-ghost", type: "button", onclick: () => copyText(emailSummary(a), "Summary copied: ready to paste into an email") },
+      svg("copy"), "Copy summary"));
+}
+
+// Client book, compact: the net position per pair (rule-based card) or the first few facts, with
+// everything else - the agent's client-book sections, tables and the trade list - one click away.
+function clientBlock(a, secs, trace) {
+  const ctx = a.client && a.client.trade_context;
+  if (!secs.length && !(ctx && ctx.length)) return null;
+  let title, visible, hidden;
+  if (ctx && ctx.length) {
+    title = "Client position";
+    visible = tradeContext(ctx);
+    hidden = secs.map((s) => agentSection(a, s, trace));
+  } else {
+    const [first, ...rest] = secs;
+    title = first.title;
+    visible = first.points.length ? el("ul", { class: "ag-points" }, first.points.slice(0, 3).map((p) => agentPoint(a, p, trace))) : null;
+    const extra = { ...first, title: `${first.title} (more)`, points: first.points.slice(3) };
+    hidden = [...(extra.points.length || extra.table ? [agentSection(a, extra, trace)] : []), ...rest.map((s) => agentSection(a, s, trace))];
+    if (!visible && first.table) { visible = agentTable(first.table); hidden = rest.map((s) => agentSection(a, s, trace)); }
+  }
+  return el("section", { class: "ag-sec k-client_data ag-client" },
+    el("div", { class: "ag-sec-head" }, el("span", { class: "ag-kind k-client_data", text: KIND.client_data.label }), el("h3", { text: title })),
+    visible,
+    hidden.length ? el("details", { class: "trade-more ag-more" },
+      el("summary", { text: `More client details (${hidden.length} section${hidden.length === 1 ? "" : "s"})` }), hidden) : null);
+}
+
 function fmtMs(ms) { return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`; }
 
 function agentTrace(a) {
@@ -682,8 +742,11 @@ function renderAgentAnswer(a, mid) {
     el("span", { class: "badge", text: `Generated ${a.generated_label}` }));
   const body = el("div", { class: "answer-body" });
   for (const n of a.notices || []) body.append(el("div", { class: `notice ${n.kind}` }, svg("shield"), el("div", { text: n.text })));
-  if (a.headline) body.append(el("p", { class: "ag-headline", text: a.headline }));
-  for (const s of a.sections || []) body.append(agentSection(a, s, trace));
+  if (a.headline || (a.summary_research || []).length) body.append(execSummary(a));
+  const secs = orderedSections(a);
+  const cb = clientBlock(a, secs.filter((s) => s.kind === "client_data"), trace);
+  if (cb) body.append(cb);
+  for (const s of secs.filter((x) => x.kind !== "client_data")) body.append(agentSection(a, s, trace));
   if (!(a.sections || []).length && !a.headline) body.append(el("p", { class: "empty-answer", text: "No answer was produced. Please try rephrasing." }));
   // Gaps and conflicts OCBC research reported. Attached by the server, so the AI cannot leave them out.
   if ((a.research_caveats || []).length) {
@@ -695,45 +758,19 @@ function renderAgentAnswer(a, mid) {
       a.follow_ups.map((f) => el("button", { class: "fu", type: "button", onclick: () => ask(f), text: f }))));
   }
   const cited = citedSources(a);
-  if (cited.length) body.append(sourcesDetails(a, cited));
-  if ((a.trace || []).length) body.append(agentTrace(a));
-  const foot = el("div", { class: "answer-foot" }, agentVerify(a),
-    el("button", { class: "btn btn-ghost", type: "button", onclick: () => copyText(agentMarkdown(a), "Answer copied") }, svg("copy"), "Copy answer"));
+  const tail = el("div", { class: "answer-tail" });   // after the client box
+  if (cited.length) tail.append(sourcesDetails(a, cited));
+  if ((a.trace || []).length) tail.append(agentTrace(a));
+  const foot = el("div", { class: "answer-foot" }, agentVerify(a));
   const srcFoot = sourcesSummary({ sources: cited });
   const clientBox = el("div", { class: "answer-client" }, a.client ? clientBar(a, mid, state.cid) : null);
-  return el("article", { class: "answer agent" }, head, body, foot,
+  return el("article", { class: "answer agent" }, head, body,
+    clientBox.childNodes.length ? clientBox : null,
+    foot,
     srcFoot ? el("div", { class: "answer-sources" }, srcFoot) : null,
-    clientBox.childNodes.length ? clientBox : null);
+    tail.childNodes.length ? tail : null);
 }
 
-function agentMarkdown(a) {
-  const out = [];
-  if (a.headline) out.push(`**${a.headline}**`, "");
-  for (const s of a.sections || []) {
-    const k = KIND[s.kind] || KIND.ai_suggestion;
-    out.push(`**${s.title}** _(${k.label})_`);
-    for (const p of s.points) {
-      out.push(`- ${p.quote && (p.mode || "verbatim") === "verbatim" ? `"${p.text}"` : p.text}${(p.citations || []).length ? " " + refs(a, p.citations) : ""}`
-        + ((p.unverified || []).length ? ` [check: ${p.unverified.join(", ")}]` : ""));
-    }
-    if (s.table && s.table.rows.length) {
-      out.push("", `| ${s.table.columns.join(" | ")} |`, `|${s.table.columns.map(() => "---").join("|")}|`,
-        ...s.table.rows.map((r) => `| ${r.join(" | ")} |`));
-    }
-    if ((s.research_tables || []).length) {
-      out.push("", ...tableMarkdownRows({ ...a, table: s.research_tables }));
-      for (const n of s.research_notes || []) out.push(`${n.text} ${refs(a, n.citations)}`.trim());
-    }
-    if (k.note) out.push("", `_${k.note}_`);
-    out.push("");
-  }
-  for (const t of a.research_caveats || []) out.push(`Note (OCBC research): ${t}`);
-  if ((a.research_caveats || []).length) out.push("");
-  const cited = citedSources(a);
-  if (cited.length) out.push("Sources:", ...sourceLines(a, new Set(cited.map((s) => s.n))), "");
-  out.push("Internal use only. Client data from the client book; AI suggestions are not OCBC research or investment advice.");
-  return out.join("\n");
-}
 
 // ------------------------------------------------------------------ Claude API switch
 // A chat command ("turn on vincent claude api") shows this box; only Yes changes anything.
@@ -787,27 +824,37 @@ function tradeContext(ctxs) {
     : el("div", { class: "trade-line" }, l.label ? el("strong", { text: `${l.label}: ` }) : null, l.text));
   const section = (title, ...body) => el("div", { class: "more-section" }, el("h5", { text: title }), ...body);
   const bullets = (xs) => el("ul", { class: "more-list" }, xs.map((t) => el("li", { text: t })));
+  // The 20 most recent trades, newest first, in a scrolling box. Answers saved before trade_iso keep their order.
+  const LAST_N = 20;
+  const recent = (x) => (x.trades.every((t) => t.trade_iso)
+    ? [...x.trades].sort((p, q) => q.trade_iso.localeCompare(p.trade_iso)) : x.trades).slice(0, LAST_N);
   const tradeTable = (x) => el("div", {},
-    el("div", { class: "muted small", text: x.count_label }),
+    el("div", { class: "muted small", text: x.trades.length > LAST_N
+      ? `Last ${LAST_N} of ${x.count_label}, newest first` : `${x.count_label}, newest first` }),
     el("div", { class: "trade-scroll" }, el("table", { class: "fc trades" },
       el("thead", {}, el("tr", {}, ["Trade date", "BUY/SELL", "Notional", "Product", "Maturity", "Status", "Note"].map((h) => el("th", { text: h })))),
-      el("tbody", {}, x.trades.map((t) => el("tr", { class: t.open ? "open" : "closed" },
+      el("tbody", {}, recent(x).map((t) => el("tr", { class: t.open ? "open" : "closed" },
         [t.trade_date, t.side, t.notional, t.product, t.maturity, t.status, t.note || ""].map((v) => el("td", { text: v }))))))));
   const more = (x) => {
+    // Ideas and the research link are shown up front (see below); the detail stays one click away.
     const parts = [
-      (x.ideas || []).length ? section("Ideas", bullets(x.ideas.map((i) => i.text))) : null,
-      x.research_link ? section("Research link", el("div", { class: "trade-line" },
-        el("strong", { text: `${x.research_link.label}: ` }), x.research_link.text)) : null,
       (x.offsets || []).length ? section("Offsets", bullets(x.offsets)) : null,
       (x.rolls || []).length ? section("Rolls", bullets(x.rolls)) : null,
       (x.trades || []).length ? section("Trades", tradeTable(x)) : null,
     ].filter(Boolean);
-    return parts.length ? el("details", { class: "trade-more" }, el("summary", { text: "More details & ideas" }), parts) : null;
+    return parts.length ? el("details", { class: "trade-more" }, el("summary", { text: "More details" }), parts) : null;
   };
+  const upfront = (x) => [
+    x.research_link ? el("div", { class: "trade-line" },
+      el("strong", { text: `${x.research_link.label}: ` }), x.research_link.text) : null,
+    (x.ideas || []).length ? el("div", { class: "trade-ideas" }, el("h5", { text: "Ideas" }),
+      bullets(x.ideas.map((i) => i.text))) : null,
+  ];
   return el("div", { class: "trade-ctx" }, ctxs.map((x) => el("div", { class: "trade-pair" },
     el("div", { class: "trade-head" }, el("span", { class: "badge", text: "Internal client data" }),
       el("span", { class: "muted", text: `as of ${x.as_of}` })),
     (x.lines || []).map(noteLine),
+    upfront(x),
     x.text_source && x.text_source !== "rules" ? el("div", { class: "muted small", text: "Some wording by Claude Haiku from the computed facts." }) : null,
     more(x))));
 }
@@ -834,6 +881,14 @@ function pastAsks(client) {
       el("li", {}, el("span", { class: "muted", text: `${askedLabel(x.asked_at)} · ` }), x.question))));
 }
 
+// Client-memory insights for a client in the book: what they asked before, how often, how recently.
+function clientInsights(client) {
+  const xs = client.insights || [];
+  if (!xs.length) return null;
+  return el("div", { class: "insights client-insights" }, el("h4", { text: "Insights" }),
+    el("ul", { class: "limits" }, xs.map((t) => el("li", { text: t }))));
+}
+
 function clientBar(a, mid, cid) {
   const box = el("div", { class: "client-bar" });
   const draw = (client) => {
@@ -843,6 +898,7 @@ function clientBar(a, mid, cid) {
       try {
         const res = await api(`/api/conversations/${cid}/messages/${mid}/${action}`, { method: "POST", body: JSON.stringify(body) });
         a.client = res.client;
+        if (res.pending_memory) a.pending_memory = res.pending_memory;
         draw(res.client);
         if (res.client.logged) toast("Saved to the client profile");
       } catch (e) {
@@ -850,8 +906,9 @@ function clientBar(a, mid, cid) {
         toast(`${action === "client-log" ? "Not saved" : "Not picked"}: ${e.message}`);
       }
     };
-    const ctx = tradeContext(client.trade_context);
-    const past = client.status === "match" ? pastAsks(client) : null;
+    // Agent answers show the trade card in the answer body, under the executive summary.
+    const ctx = a.kind === "agent" ? null : tradeContext(client.trade_context);
+    const past = client.status === "match" ? el("div", {}, pastAsks(client), clientInsights(client)) : null;
     // Native append() would print a missing section as the text "null", so drop empties first.
     const add = (...parts) => box.append(...parts.filter(Boolean));
     if (client.logged) {
@@ -861,6 +918,12 @@ function clientBar(a, mid, cid) {
     }
     if (client.declined) {
       add(el("div", { class: "client-line muted", text: "Not logged to a client profile." }), past, ctx);
+      return;
+    }
+    if (client.status === "unlisted") {
+      // The person's company is not in the client book: the client-memory card (insights + save) instead.
+      add(el("div", { class: "client-line muted" }, `${client.company} is not in the client book, so there are no trades to show.`),
+        a.pending_memory ? memoryCard(a.pending_memory) : null);
       return;
     }
     if (client.chosen_later) {
@@ -890,9 +953,12 @@ function clientBar(a, mid, cid) {
       go.onclick = () => { if (input.value.trim()) post("client-pick", { text: input.value.trim() }, all); };
       input.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); go.onclick(); } };
       no.onclick = () => post("client-log", { decline: true }, all);
-      box.append(el("div", { class: "client-line" }, el("span", { class: "badge warn", text: "Which client?" }),
-        el("span", { text: `"${client.mention}" matches more than one client. Pick one, or reply with its letter or company name.` })),
-        el("div", { class: "pick-list" }, picks),
+      if (client.unknown) input.placeholder = `${client.mention}'s company`;
+      add(el("div", { class: "client-line" }, el("span", { class: "badge warn", text: client.unknown ? `Which ${client.mention}?` : "Which client?" }),
+        el("span", { text: client.unknown
+          ? `No contact named "${client.mention}" is in the client book. Which company is ${client.mention} from? Type it below, or reply with it.`
+          : `"${client.mention}" matches more than one client. Pick one, or reply with its letter or company name.` })),
+        picks.length ? el("div", { class: "pick-list" }, picks) : null,
         el("div", { class: "client-ask" }, input, go, no));
     }
   };
@@ -980,28 +1046,24 @@ function tableMarkdown(a) {
   const used = citedIn(a.table);
   return [...tableMarkdownRows(a), "", "Sources:", ...sourceLines(a, used)].join("\n");
 }
-function answerMarkdown(a) {
-  // Client-ready text: summary, table, implication, material notes, sources.
-  const out = [];
-  for (const n of a.notices || []) out.push(`Note: ${n.text}`, "");
-  const gaps = a.direct.length ? a.limitations.filter((l) => LEAD_LIMITS.has(l.type)).map((l) => l.text) : [];
-  summaryParagraphs(a.direct).forEach((para, i) =>
-    out.push([...(i === 0 ? gaps : []), ...para.map((c) => `${c.text} ${refs(a, c.citations)}`.trim())].join(" "), ""));
-  if (!a.direct.length && a.no_evidence_message) out.push(a.no_evidence_message, "");
-  const implication = a.table_notes.filter((n) => n.mode !== "verbatim");
-  if (a.table.length) out.push(...tableMarkdownRows(a), "");
-  if (implication.length) out.push(implication.map((c) => `${c.text} ${refs(a, c.citations)}`).join(" "), "");
-  if (a.conflicts.length) a.conflicts.forEach((c) => out.push(`Note: ${c.text}`));
-  const notes = a.limitations.filter((l) => MATERIAL_LIMITS.has(l.type) && !gaps.includes(l.text));
-  notes.forEach((l) => out.push(`Note: ${l.text}`));
-  if (a.conflicts.length || notes.length) out.push("");
-  const used = citedIn([...a.direct, ...a.table, ...implication]);
-  out.push("Sources:", ...sourceLines(a, used));
-  out.push("", "Source: OCBC Group Research. Consolidation of published research; not investment advice.");
-  const basedOn = sourcesSummaryText(a.sources.filter((s) => used.has(s.n)));
-  if (basedOn) out.push("", basedOn);
-  return out.join("\n");
+// "Copy summary": the executive summary only, as plain paragraphs for an email - no citation numbers,
+// no markdown, no source line. Assistant answers copy OCBC's view in brief (the AI's brief is
+// written for the salesperson, not the client), or the brief when no research was used.
+function emailSummary(a) {
+  const paras = [];
+  if (a.kind === "agent") {
+    const r = a.summary_research || [];
+    if (r.length) paras.push(r.map((p) => p.text).join(" "));
+    else if (a.headline) paras.push(a.headline);
+  } else {
+    const gaps = (a.direct || []).length ? (a.limitations || []).filter((l) => LEAD_LIMITS.has(l.type)).map((l) => l.text) : [];
+    summaryParagraphs(a.direct || []).forEach((para, i) =>
+      paras.push([...(i === 0 ? gaps : []), ...para.map((c) => c.text)].join(" ")));
+    if (!paras.length && a.no_evidence_message) paras.push(a.no_evidence_message);
+  }
+  return paras.join("\n\n");
 }
+
 async function copyText(text, msg) {
   try { await navigator.clipboard.writeText(text); toast(msg); }
   catch (_) {
@@ -1022,7 +1084,14 @@ async function openSource(answer, n) {
   $("drawerKicker").textContent = `Source ${n}`;
   $("drawerTitle").textContent = s.title;
   const body = $("drawerBody");
-  body.replaceChildren(el("div", { class: "excerpt", text: s.excerpt }));
+  // The cited page, with the quoted words highlighted, comes first; the excerpt and details sit below it.
+  const img = el("img", { class: "page-img", alt: `Page ${s.pdf_page} of ${s.title} with the cited excerpt highlighted`,
+    src: `/api/docs/${encodeURIComponent(s.doc_id)}/pages/${s.pdf_page}.png?q=${encodeURIComponent(s.excerpt.slice(0, 3500))}` });
+  img.addEventListener("error", () => img.replaceWith(el("div", { class: "notice error" }, svg("alert"), el("div", { text: "Page image could not be rendered." }))));
+  body.replaceChildren(
+    el("div", { class: "section page-first" }, el("h3", { text: `Cited page ${s.pdf_page} (quoted words highlighted)` }), img),
+    el("div", { class: "section" }, el("h3", { text: "Quoted excerpt" }), el("div", { class: "excerpt", text: s.excerpt })));
+  body.scrollTop = 0;
   let meta = null;
   try { meta = await api(`/api/docs/${encodeURIComponent(s.doc_id)}`); }
   catch (e) { body.append(el("div", { class: "notice error" }, svg("alert"), el("div", { text: `Document details unavailable (${e.message}).` }))); }
@@ -1050,10 +1119,6 @@ async function openSource(answer, n) {
   body.append(kv);
   if (s.ocr) body.append(el("div", { class: "flag", text: "This excerpt was extracted by OCR from an image-only page — verify against the page image." }));
   if (meta && meta.date_flags && meta.date_flags.length) meta.date_flags.forEach((f) => body.append(el("div", { class: "flag", text: f })));
-  const img = el("img", { class: "page-img", alt: `Page ${s.pdf_page} of ${s.title} with the cited excerpt highlighted`, loading: "lazy",
-    src: `/api/docs/${encodeURIComponent(s.doc_id)}/pages/${s.pdf_page}.png?q=${encodeURIComponent(s.excerpt.slice(0, 3500))}` });
-  img.addEventListener("error", () => img.replaceWith(el("div", { class: "notice error" }, svg("alert"), el("div", { text: "Page image could not be rendered." }))));
-  body.append(el("div", { class: "section" }, el("h3", { text: "Cited page (excerpt highlighted)" }), img));
   $("drawerClose").focus();
 }
 function closeDrawer() { $("drawer").hidden = true; $("scrim").hidden = !document.getElementById("app").classList.contains("nav-open"); }

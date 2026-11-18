@@ -14,6 +14,7 @@ Deterministic matching (no model call), so client names never leave this service
 """
 from __future__ import annotations
 
+import difflib
 import re
 from dataclasses import dataclass, field
 
@@ -79,6 +80,31 @@ def company_keys(client: dict) -> list[tuple[str, float]]:
     return [(k, s) for k, s in keys.items() if k]
 
 
+FUZZY_MIN_RATIO = 0.85   # "habourline logsitic" -> Harbourline Logistics; short or common words never fuzzy-match
+FUZZY_MIN_CHARS = 6
+
+
+def fuzzy_company_hits(text_norm: str, clients: list[dict]) -> dict[str, tuple[float, str]]:
+    """Typo-tolerant company match, used only when no company name matched exactly. Compares each company
+    key (name, name without suffix, label, aliases, distinctive first word) of 6+ letters with the
+    question's runs of the same number of words, and scores a near-match exactly like an exact one - so a
+    misspelt "Meridan" is as ambiguous as "Meridian". Returns {client_id: (score, the words as typed)}."""
+    words = text_norm.split()
+    best: dict[str, tuple[float, float, str]] = {}
+    for c in clients:
+        for phrase, strength in company_keys(c):
+            n = len(phrase.split())
+            if len(phrase.replace(" ", "")) < FUZZY_MIN_CHARS:
+                continue
+            score = n * strength + (0.25 if strength == 1.0 else 0)
+            for i in range(len(words) - n + 1):
+                typed = " ".join(words[i:i + n])
+                ratio = difflib.SequenceMatcher(None, phrase, typed).ratio()
+                if ratio >= FUZZY_MIN_RATIO and (score, ratio) > best.get(c["client_id"], (0, 0, ""))[:2]:
+                    best[c["client_id"]] = (score, ratio, typed)
+    return {cid: (score, typed) for cid, (score, _, typed) in best.items()}
+
+
 def identify(question: str, clients: list[dict], contacts: list[dict]) -> Identification:
     text_norm = _norm(question)
     spans: list[tuple[int, int]] = []    # character spans in the ORIGINAL question to remove
@@ -94,8 +120,10 @@ def identify(question: str, clients: list[dict], contacts: list[dict]) -> Identi
                     best = (score, phrase)
         if best:
             company_hits[c["client_id"]] = best
+    if not company_hits:
+        company_hits = fuzzy_company_hits(text_norm, clients)
 
-    # ---- people: full name (any case) or capitalised first name
+    # ---- people: full name (any case) or capitalised first name; any case once their company is named
     person_hits: dict[str, tuple[float, str]] = {}
     for p in contacts:
         full = f"{p['first_name']} {p['last_name']}"
@@ -103,6 +131,8 @@ def identify(question: str, clients: list[dict], contacts: list[dict]) -> Identi
             person_hits[p["contact_id"]] = (2.0, full)
         elif re.search(rf"(?<!\w){re.escape(p['first_name'])}(?!\w)", question):  # case-sensitive
             person_hits[p["contact_id"]] = (1.0, p["first_name"])
+        elif p["client_id"] in company_hits and _find(_norm(p["first_name"]), text_norm):
+            person_hits[p["contact_id"]] = (1.0, p["first_name"])   # "jimmy from Harbourline"
 
     by_id = {c["client_id"]: c for c in clients}
     cands: dict[tuple[str, str | None], Candidate] = {}
