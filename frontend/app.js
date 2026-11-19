@@ -503,12 +503,8 @@ function renderAnswer(a, mid) {
   if (implication.length) {
     body.append(el("div", { class: "section direct" }, implication.map((c) => el("p", {}, c.text, " ", citeChips(a, c.citations)))));
   }
-  if (a.conflicts && a.conflicts.length) {
-    body.append(el("div", { class: "section" }, el("h3", { text: "Differing views in the research" }),
-      el("ul", { class: "limits" }, a.conflicts.map((c) => el("li", {},
-        el("span", { class: `badge ${c.resolution === "unresolved" ? "bad" : "info"}`, text: c.resolution === "unresolved" ? "Unresolved" : "Revision" }),
-        el("span", { text: c.text }))))));
-  }
+  // Forecast revisions and conflicts are not listed: the table already shows the latest forecast with its
+  // update date, and a genuine unresolved conflict shows both values plus a line under "Please note".
   const material = (a.limitations || []).filter((l) => MATERIAL_LIMITS.has(l.type) && !(a.direct.length && LEAD_LIMITS.has(l.type)));
   const minor = (a.limitations || []).filter((l) => !MATERIAL_LIMITS.has(l.type));
   if (material.length) {

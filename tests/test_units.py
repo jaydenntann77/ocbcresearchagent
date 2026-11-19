@@ -165,3 +165,18 @@ def test_no_evidence_message_names_instruments():
         "The ingested OCBC research does not contain a verified forecast for SORA or TONA."
     # "this horizon" only when the instrument exists but not for the requested years
     assert no_evidence_message(plan, [{"type": "horizon_not_covered", "text": ""}]) == NO_FORECAST
+
+
+def test_revision_needs_a_later_stated_update_date():
+    """A newer report revises an older forecast only when it states a later forecast-update date. An older
+    report that states none is dated by its publication date (seen live: the November Research Monitor)."""
+    from app.research.specialists import later_update
+    dmo = {"publication_date": "2026-11-17", "data_date": "Latest Forecast Update: 16 Nov 2026"}
+    weekly = {"publication_date": "2026-11-16", "data_date": "Latest Forecast Update: 30 October 2026"}
+    monitor = {"publication_date": "2026-11-02", "data_date": None}
+    undated_new = {"publication_date": "2026-11-18", "data_date": None}
+    assert later_update(dmo, weekly) and later_update(dmo, monitor)
+    assert not later_update(weekly, dmo)            # an earlier stated update never revises
+    assert not later_update(undated_new, weekly)    # the newer report must state its update date
+    assert not later_update({"publication_date": "2026-11-17", "data_date": "Latest Forecast Update: 2 Nov 2026"},
+                            monitor)               # same day as the older report: not later

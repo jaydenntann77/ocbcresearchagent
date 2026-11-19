@@ -204,9 +204,9 @@ everything else.
 * Forecast values are copied cell for cell. There is no interpolation, inversion or unit conversion. A request for SGD/USD reports that OCBC publishes USD-SGD and that the pair was not inverted.
 * Requested horizons that are missing are reported with the exact wording "The ingested OCBC research does not contain a verified forecast for the … horizon". Relative horizons (3M/6M/12M) are shown as published and never mapped to dates.
 * Conflicts:
-  * The same instrument and horizon with different values in different reports is a revision only when the newer report states a later forecast-update date. Both sources stay in the explanation.
-  * Otherwise both values are shown and the conflict is labelled **unresolved**.
-  * Values are never averaged.
+  * The same instrument and horizon with different values in different reports is a revision only when the newer report states a later forecast-update date. An older report that states no update date counts from its publication date. The table then shows the latest value with its forecast-update date and source.
+  * Otherwise both values are shown in the table, and *Please note* says the sources don't establish which is newer.
+  * Values are never averaged. The answer doesn't list individual revisions.
 * Coverage statuses are kept distinct: no relevant information, document inaccessible, extraction failed, conflicting sources, horizon not covered.
 * Web or browsing requests get a notice and are answered from the corpus only. Requests for original ideas or recommendations get a notice plus OCBC's published views. The validator blocks recommendation language that is not in the cited source.
 * **Validation checks:**
@@ -386,7 +386,8 @@ They are generated into a temporary `RA_DATA_DIR` with `RA_DEV_FIXTURE_CORPUS=1`
 
 * **Model summaries depend on wording overlap.** The validator checks model sentences for cited numbers, pair direction, recommendation language and at least 60% word overlap with the cited excerpts. That catches added facts and figures, but a fluent paraphrase that shifts emphasis can still pass. Extractive mode (no key) avoids this entirely.
 * **Scenarios that the real 7-day corpus does not contain** were verified only on isolated fixtures:
-  * forecast revisions and unresolved conflicts (the window holds one forecast-table set)
+  * unresolved conflicts (forecast revisions were verified on the real corpus on 19 Nov 2026, when the Daily
+    Market Outlook's 16 Nov USD/SGD update replaced the 30 Oct forecast)
   * a fully scanned document (only image-only divider and chart pages were OCR'd)
   * an unavailable listing section (all 29 checks succeeded)
   * a document with embedded malicious instructions (0 flagged)

@@ -40,7 +40,8 @@ RESEARCH = {
     "risks": [],
     "limitations": [{"type": "horizon_not_covered", "text": "No verified forecast for the 2028 horizon."},
                     {"type": "note", "text": "3M/6M/12M horizons are relative."}],
-    "conflicts": [{"text": "Two reports differ on 4Q26.", "resolution": "unresolved"}],
+    "conflicts": [{"text": "Two reports differ on 4Q26.", "resolution": "unresolved"},
+                  {"text": "A newer report revises 1Q27.", "resolution": "latest_publication_applies"}],
     "sources": [{"n": 1, "doc_id": "d1", "pdf_page": 3, "excerpt": "We expect ...", "title": "FX Weekly"},
                 {"n": 2, "doc_id": "d2", "pdf_page": 1, "excerpt": "Forecast table", "title": "FX Monthly"}],
 }

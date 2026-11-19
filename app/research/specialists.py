@@ -19,7 +19,7 @@ from app.common.instruments import CURRENCY_NAMES, display_name, instrument_alia
 from app.common.schemas import (SPECIALIST_LABELS, Conflict, Coverage, Evidence, Finding, ForecastValue, SpecialistResponse,
                                 SpecialistTask)
 from app.common.security import evidence_signature
-from app.common.timeutil import today_sgt
+from app.common.timeutil import parse_human_date, today_sgt
 from app.research.collections import CollectionHandle, CollectionRegistry
 
 VIEW_RE = re.compile(
@@ -54,6 +54,26 @@ FX_TERMS = {"SGD": ["S$NEER", "SGD NEER", "NEER", "MAS", "Singapore dollar"]}
 COUNTRY_NAMES = {"SG": "Singapore", "MY": "Malaysia", "ID": "Indonesia", "TH": "Thailand", "CN": "China",
                  "HK": "Hong Kong", "TW": "Taiwan", "KR": "Korea", "JP": "Japan", "IN": "India", "PH": "Philippines",
                  "VN": "Vietnam", "US": "US", "EA": "euro area", "UK": "UK", "AU": "Australia", "MO": "Macau"}
+
+
+def _set_on(r: dict) -> date | None:
+    """When a forecast was set: its stated forecast-update date, or - when the report states none - the
+    report's own publication date (a forecast cannot postdate the report it appears in)."""
+    stated = parse_human_date(r.get("data_date") or "")
+    if stated:
+        return stated
+    try:
+        return date.fromisoformat((r.get("publication_date") or "")[:10])
+    except ValueError:
+        return None
+
+
+def later_update(newer: dict, older: dict) -> bool:
+    """A revision only when the newer report states a forecast-update date later than when the older
+    forecast was set. An older report with no stated update date is dated by its publication date."""
+    stated = parse_human_date(newer.get("data_date") or "")
+    set_on = _set_on(older)
+    return bool(stated and set_on and stated > set_on)
 
 
 def _norm(s: str) -> str:
@@ -225,14 +245,15 @@ class Specialist:
             docs = {r["doc_id"] for r in recs}
             newest, older = recs[0], [r for r in recs[1:] if r["value"] != recs[0]["value"]]
             supersedes = len(docs) > 1 and all(
-                (newest["publication_date"] or "") > (o["publication_date"] or "") and newest["data_date"]
-                and o["data_date"] and newest["data_date"] != o["data_date"] for o in older)
+                (newest["publication_date"] or "") > (o["publication_date"] or "") and later_update(newest, o)
+                for o in older)
             chosen.append(newest)
             if supersedes:
                 resp.conflicts.append(Conflict(
                     description=(f"{newest['instrument_label']} {label}: {newest['value']} in {newest['title']} "
                                  f"({newest['publication_date']}, {newest['data_date']}) replaces "
-                                 + "; ".join(f"{o['value']} in {o['title']} ({o['publication_date']}, {o['data_date']})"
+                                 + "; ".join(f"{o['value']} in {o['title']} ({o['publication_date']}, "
+                                             f"{o['data_date'] or 'no forecast update date stated'})"
                                              for o in older) + ". The newer report states a later forecast update date."),
                     instrument_key=key, horizon_label=label,
                     record_ids=[newest["record_id"]] + [o["record_id"] for o in older],
@@ -446,9 +467,13 @@ class Specialist:
             resp.coverage.append(Coverage(status="extraction_failed", detail=p))
         for p in problems["sections_failed"]:
             resp.limitations.append(f"Research section could not be checked during ingestion: {p}")
-        if resp.conflicts:
+        # A revision (a newer report states a later forecast update) is not a gap in coverage: it is shown under
+        # "Differing views" with the latest value applied. Only conflicts the sources can't settle are flagged.
+        unresolved = [c for c in resp.conflicts if c.resolution == "unresolved"]
+        if unresolved:
             resp.coverage.append(Coverage(status="conflicting_sources",
-                                          detail=f"{len(resp.conflicts)} forecast conflict(s) or revision(s) detected"))
+                                          detail=f"{len(unresolved)} forecast conflict(s) where the sources do not "
+                                                 f"establish which is newer; both values are shown"))
         if any(e.ocr for e in resp.evidence):
             resp.limitations.append("Some evidence was extracted by OCR from image-only pages; verify against the page image.")
         if resp.documents_considered and not resp.findings and not resp.forecasts:

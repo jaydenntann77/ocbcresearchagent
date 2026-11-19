@@ -366,7 +366,8 @@ class Agent:
 
         # Gaps and conflicts are attached to the answer by code, so the model cannot leave them out.
         caveats = [l["text"] for l in ans.get("limitations") or [] if l.get("type") in MATERIAL_LIMITS]
-        caveats += [c["text"] for c in ans.get("conflicts") or [] if c.get("text")]
+        # Unresolved conflicts are caveats; a revision (newer report, later forecast update) is not.
+        caveats += [c["text"] for c in ans.get("conflicts") or [] if c.get("text") and c.get("resolution") == "unresolved"]
         if not (ans.get("direct") or ans.get("table")) and (ans.get("no_evidence_message") or ans.get("message")):
             caveats.append(ans.get("no_evidence_message") or ans.get("message"))
         self.research_log.append({"question": question, "status": ans.get("status"),
