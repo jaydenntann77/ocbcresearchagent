@@ -208,6 +208,7 @@ everything else.
   * Otherwise both values are shown in the table, and *Please note* says the sources don't establish which is newer.
   * Values are never averaged. The answer doesn't list individual revisions.
 * Coverage statuses are kept distinct: no relevant information, document inaccessible, extraction failed, conflicting sources, horizon not covered.
+* **Nothing technical reaches salespeople.** *Please note* shows only gaps in what the research covers (a horizon not covered, a pair OCBC doesn't publish, reports that disagree), in plain words. A report that couldn't be downloaded or read, internal checks, modes, specialists, model names, tokens and document IDs are not shown, and they don't mark an answer "partial". They stay in the data and on the Corpus status page, which the hosted site hides from its navigation.
 * Web or browsing requests get a notice and are answered from the corpus only. Requests for original ideas or recommendations get a notice plus OCBC's published views. The validator blocks recommendation language that is not in the cited source.
 * **Validation checks:**
   * evidence signature, document, page and verbatim excerpt
@@ -269,8 +270,9 @@ access.
 * Every figure with decimals, or of 100 and above, in client-book and suggestion text and tables is matched
   against the data the tools returned. A figure that is not found is shown as **Check …**.
 * An AI suggestion or general section that attributes a view to OCBC is flagged.
-* Each answer has a *How I worked this out* trace: every tool call, what it returned, timings, model turns and
-  tokens. The `D1` chips beside each fact jump to the step it came from.
+* Each answer has a *How I worked this out* list: every lookup in plain words and what it found. The `D1` chips
+  beside each fact jump to the step it came from. Model turns, tokens and timings are kept in the answer data,
+  not shown.
 
 **Without a model** (no key, Claude API switched off, or the daily cap reached), an agent ask about a client gets
 a deterministic **client-book snapshot**. A maturities ask gets the maturities table. Anything else falls back to

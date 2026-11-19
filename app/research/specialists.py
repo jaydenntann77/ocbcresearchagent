@@ -472,8 +472,8 @@ class Specialist:
         unresolved = [c for c in resp.conflicts if c.resolution == "unresolved"]
         if unresolved:
             resp.coverage.append(Coverage(status="conflicting_sources",
-                                          detail=f"{len(unresolved)} forecast conflict(s) where the sources do not "
-                                                 f"establish which is newer; both values are shown"))
+                                          detail="Some OCBC reports give different forecasts for the same date and "
+                                                 "don't say which is newer, so both values are shown."))
         if any(e.ocr for e in resp.evidence):
             resp.limitations.append("Some evidence was extracted by OCR from image-only pages; verify against the page image.")
         if resp.documents_considered and not resp.findings and not resp.forecasts:

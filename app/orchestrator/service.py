@@ -100,17 +100,17 @@ def answer_question(question: str, state: dict, emit) -> tuple[dict, dict]:
         q = guardrails.strip_web_request(question)
     if checks["advice"]:
         notices.append({"kind": "advice", "text": guardrails.ADVICE_NOTICE})
-    emit("Checking corpus coverage")
+    emit("Checking the latest research")
     try:
         corpus = corpus_meta()
     except ServiceError as exc:
-        return _simple(question, "error", f"The research service is unavailable ({exc}). No answer was generated; "
-                                          f"please retry or contact the administrator.", notices), state
+        return _simple(question, "error", "The research isn't available right now. Please try again in a moment.",
+                       notices), state
     w = corpus["window"]
     if not w.get("start"):
-        return _simple(question, "error", "The research knowledge base has not been built yet. An administrator "
-                                          "needs to run ingestion (Corpus status → Refresh).", notices, corpus), state
-    emit("Understanding the request")
+        return _simple(question, "error", "The research library is still being set up. Please try again later.",
+                       notices, corpus), state
+    emit("Understanding the question")
     terms = llm.search_terms(q)
     plan = planner.plan_request(q, state.get("last_plan"), (w["start"], w["end"]), bool(w.get("expanded")))
     if not plan.specialists and terms:
@@ -148,20 +148,19 @@ def answer_question(question: str, state: dict, emit) -> tuple[dict, dict]:
             gaps = [f"FX research returned {len(rationale)} rationale passage(s) for {', '.join(plan.instruments)}"]
             extra = planner.build_tasks(plan, (w["start"], w["end"]), bool(w.get("expanded")), ["macro"],
                                         known_gaps=gaps, follow_up_of=lead.task_id, search_terms=terms)
-            emit("Requesting supporting macro research")
+            emit("Looking at macro research too")
             responses += [run(t) for t in extra]
     use_model = llm.status()["available"]
     if use_model and not conversations.take_model_call(config.MODEL_DAILY_CAP):
         use_model = False
-        notices.append({"kind": "info", "text": "Today's budget for model-written summaries has been used up, so this "
-                                                "answer quotes the OCBC sources directly. Full summaries resume tomorrow "
-                                                "(SGT)."})
-    emit("Validating evidence and citations")
+        notices.append({"kind": "info", "text": "Today's limit for written summaries has been reached, so this answer "
+                                                "quotes the OCBC reports directly. Summaries are back tomorrow."})
+    emit("Checking every figure against the reports")
     try:
         answer = composer.compose(question, plan, responses, validator, notices, corpus, use_model=use_model)
     except ServiceError as exc:
-        return _simple(question, "error", f"The evidence validator is unavailable ({exc}), so the answer was withheld "
-                                          f"rather than shown unvalidated. Please retry shortly.", notices, corpus), state
+        return _simple(question, "error", "The answer couldn't be checked against the reports just now, so it isn't "
+                                          "shown. Please try again in a moment.", notices, corpus), state
     answer["plan"] = {"specialists": [SPECIALIST_LABELS[r.specialist] for r in responses], "lead":
                       SPECIALIST_LABELS.get(plan.lead or "", None), "instruments": plan.instruments,
                       "horizon": plan.horizon, "info_types": plan.info_types, "inherited_context": plan.inherited,
@@ -302,7 +301,7 @@ def agent_answer(question: str, client: dict | None, state: dict, emit) -> tuple
     elif not status["available"]:
         reason = "Agent mode needs the Claude API, which is OFF (type “turn on Claude API” to enable it)."
     elif not conversations.take_model_call(config.MODEL_DAILY_CAP):
-        reason = "Today's budget for model calls has been used up, so agent mode is paused until tomorrow (SGT)."
+        reason = "Today's limit for the assistant has been reached; it's back tomorrow."
     else:
         def research_fn(q: str) -> dict:
             # The agent's research tool is the full research pipeline: specialists, validator, citations.
@@ -315,11 +314,10 @@ def agent_answer(question: str, client: dict | None, state: dict, emit) -> tuple
             return agent.Agent(clientdata, research_fn, emit, names=names).run(
                 question, ctx, state.get("turns") or []), None
         except agent.AgentUnavailable as exc:
-            reason = f"Agent mode could not run ({exc})"
+            reason = "The assistant couldn't answer just now."
     snap = agent.snapshot(clientdata, client, question)
     if snap:
-        snap["notices"].append({"kind": "info", "text": f"{reason} This snapshot comes straight from the client "
-                                                        f"book, with no AI suggestions."})
+        snap["notices"].append({"kind": "info", "text": f"{reason} Here is a summary straight from the client book."})
         return snap, None
     return None, reason
 
@@ -371,7 +369,7 @@ def routed_answer(question: str, prior: dict, mode: str, emit) -> tuple[dict, di
             if tried:
                 answer, state = tried, dict(prior)
         elif why_not:
-            answer["notices"] = [{"kind": "info", "text": f"{why_not} Showing OCBC research instead."},
+            answer["notices"] = [{"kind": "info", "text": f"{why_not} Here is OCBC research instead."},
                                  *answer.get("notices", [])]
     else:
         state = dict(prior)
@@ -548,8 +546,8 @@ def chat(payload: dict = Body(...), x_ra_session: str = Header(default="local"))
                     state["turns"] = [*(prior.get("turns") or [])[-5:],
                                       {"q": question, "a": agent.turn_summary(answer)}]
         except Exception as exc:  # noqa: BLE001
-            answer = _simple(question, "error", f"Something went wrong while preparing the answer "
-                                                f"({type(exc).__name__}). No unverified content is shown.")
+            answer = _simple(question, "error", "Something went wrong while preparing the answer. Please try "
+                                                "again.")
         mid = conversations.add_message(cid, "assistant", "", answer)
         if state is not None:
             client = answer.get("client") or {}

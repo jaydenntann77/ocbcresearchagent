@@ -90,16 +90,16 @@ function renderFreshness() {
   }
   const c = m.corpus;
   if (!c || !c.window || !c.window.start) {
-    f.append(el("span", { class: "expanded", text: m.corpus_error ? "Research service unavailable" : "Knowledge base not built yet — run ingestion from Corpus status" }));
+    f.append(el("span", { class: "expanded", text: m.corpus_error ? "Research unavailable right now" : "Research library not available yet" }));
   } else {
     f.append(
       el("span", {}, "Research published ", el("b", { text: c.published_label || "—" })),
       el("span", { class: "sep", text: "·" }),
-      el("span", {}, "Corpus window ", el("b", { text: c.window.label })),
+      el("span", {}, "Covering ", el("b", { text: c.window.label })),
       el("span", { class: "sep", text: "·" }),
-      el("span", {}, "Refreshed ", el("b", { text: c.refreshed_label || "—" })),
+      el("span", {}, "Updated ", el("b", { text: c.refreshed_label || "—" })),
     );
-    if (c.window.expanded) f.append(el("span", { class: "expanded", text: `Expanded window (${c.window.days} days)` }));
+    if (c.window.expanded) f.append(el("span", { class: "expanded", text: `Wider date range (${c.window.days} days)` }));
   }
   const model = m.model || {};
   // Model use needs a key in .env AND the Claude API switch ON (off after every restart).
@@ -110,11 +110,11 @@ function renderFreshness() {
     : model.available ? `Claude API mode · ${model.model}` : "Extractive mode";
   pill.className = "mode-pill " + (model.available ? "ok" : "warn") + (local ? " clickable" : "");
   pill.disabled = !local;
+  pill.hidden = !local;   // the hosted site shows no model or mode details
   pill.title = local ? (model.available ? "Click to switch back to extractive mode (no API calls)."
     : model.key_present ? "Click to switch to Claude API mode." : "No API key found in .env") : (model.message || "");
   $("sidebarFoot").textContent = model.public_mode
-    ? (model.available ? "Model-assisted synthesis is enabled. Every sentence is validated against cited OCBC evidence."
-      : "No model credential configured: answers quote OCBC research verbatim.")
+    ? "Answers come from OCBC research, with every point cited to the original report."
     : model.available
     ? "Claude API is ON: model-assisted synthesis. Every sentence is validated against cited OCBC evidence."
     : model.key_present
@@ -281,13 +281,6 @@ const STATUS = {
   complete: ["Complete", "ok"], partial: ["Partial coverage", "warn"], no_evidence: ["No verified evidence", "bad"],
   clarify: ["Needs clarification", "info"], info: ["Info", "info"], error: ["Error", "bad"], declined: ["Declined", "warn"],
 };
-const LIMIT_LABEL = {
-  horizon_not_covered: ["Horizon not covered", "warn"], no_relevant_information: ["No relevant information", "warn"],
-  document_inaccessible: ["Document inaccessible", "bad"], extraction_failed: ["Extraction failed", "bad"],
-  conflicting_sources: ["Conflicting sources", "warn"], missing_coverage: ["Not published", "warn"],
-  note: ["Note", "info"], mixed_dates: ["Mixed dates", "info"], validation: ["Validation", "warn"], model: ["Model", "info"],
-  error: ["Error", "bad"], horizon_passed: ["Horizon passed", "warn"], limitation: ["Limitation", ""],
-};
 
 function citeChips(answer, nums) {
   return (nums || []).map((n) => el("button", { class: "cite", type: "button", title: `Open source ${n}`,
@@ -387,8 +380,15 @@ function summaryParagraphs(direct) {
   }
   return paras;
 }
-const MATERIAL_LIMITS = new Set(["horizon_not_covered", "no_relevant_information", "document_inaccessible",
-  "extraction_failed", "conflicting_sources", "missing_coverage", "error", "horizon_passed"]);
+// "Please note" shows only gaps in what the research covers, in plain words. Anything about how the system
+// works (a report that couldn't be downloaded, internal checks, which component did what) is never shown.
+const MATERIAL_LIMITS = new Set(["horizon_not_covered", "no_relevant_information", "conflicting_sources",
+  "missing_coverage", "error", "horizon_passed"]);
+function plainLimits(list) {
+  const texts = list.map((l) => l.type === "error"
+    ? "Part of the research couldn't be searched just now. Please ask again in a moment." : l.text);
+  return [...new Set(texts)];
+}
 
 function tableGroups(rows) {
   // One table per horizon kind; columns keep the published order of horizons.
@@ -468,7 +468,7 @@ function sourcesDetails(a, list) {
         el("div", { class: "m" }, el("span", { text: `Published ${s.publication_label}` }),
           el("span", { text: `PDF p.${s.pdf_page}${s.printed_page && s.printed_page !== String(s.pdf_page) ? ` (printed ${s.printed_page})` : ""}` }),
           s.data_date ? el("span", { text: s.data_date }) : null,
-          s.ocr ? el("span", { class: "badge warn", text: "OCR" }) : null),
+          s.ocr ? el("span", { class: "badge warn", text: "From page image" }) : null),
         el("div", { class: "x", text: s.excerpt })),
       freshBadge(s.freshness)))));
 }
@@ -506,10 +506,9 @@ function renderAnswer(a, mid) {
   // Forecast revisions and conflicts are not listed: the table already shows the latest forecast with its
   // update date, and a genuine unresolved conflict shows both values plus a line under "Please note".
   const material = (a.limitations || []).filter((l) => MATERIAL_LIMITS.has(l.type) && !(a.direct.length && LEAD_LIMITS.has(l.type)));
-  const minor = (a.limitations || []).filter((l) => !MATERIAL_LIMITS.has(l.type));
   if (material.length) {
     body.append(el("div", { class: "section please-note" }, el("h3", { text: "Please note" }),
-      el("ul", { class: "limits" }, material.map((l) => el("li", { text: l.text })))));
+      el("ul", { class: "limits" }, plainLimits(material).map((t) => el("li", { text: t })))));
   }
   if (a.suggestions && a.suggestions.length) {
     body.append(el("div", { class: "suggestions" }, a.suggestions.map((s) => el("button", { class: "suggestion", type: "button", onclick: () => ask(s) }, svg("spark"), el("span", { text: s })))));
@@ -524,26 +523,9 @@ function renderAnswer(a, mid) {
       (a.scenarios || []).length ? el("div", {}, el("h4", { text: "Scenarios" }), claimList(a, a.scenarios)) : null));
   }
   if (a.sources && a.sources.length) tail.append(sourcesDetails(a, a.sources));
-  const fr = a.freshness || {};
-  if (a.plan || (a.sources && a.sources.length)) {
-    tail.append(el("details", { class: "audit" }, el("summary", { text: "How this answer was produced" }),
-      a.sources && a.sources.length ? el("div", { class: "dates-strip" },
-        el("span", {}, "Sources published ", el("b", { text: fr.research_published || "—" })),
-        el("span", {}, "Corpus window ", el("b", { text: fr.corpus_window || "—" })),
-        el("span", {}, "Corpus refreshed ", el("b", { text: fr.corpus_refreshed || "—" })),
-        el("span", {}, "Answer generated ", el("b", { text: a.generated_label })),
-        fr.expanded ? el("span", { class: "badge warn", text: "Expanded date range" }) : null) : null,
-      a.mode && a.mode !== "none" ? el("div", { text: `Mode: ${a.mode === "model_assisted" ? "model-assisted summary (validated)" : "extractive (summary quotes the research and uses fixed wording around forecast values)"} · specialists: ${(a.specialists || []).join(", ") || "—"}` }) : null,
-      a.plan ? el("div", { text: `Lead specialist: ${a.plan.lead || "—"} · consulted: ${a.plan.specialists.join(", ")} · instruments: ${(a.plan.instruments || []).join(", ") || "—"} · horizon: ${a.plan.horizon || "—"} · requested: ${a.plan.info_types.join(", ")}${a.plan.inherited_context ? " · follow-up context inherited" : ""}${(a.plan.search_terms || []).length ? ` · search terms added: ${a.plan.search_terms.join(", ")}` : ""}` }) : null,
-      a.validation ? el("div", { text: `Validation checks: ${a.validation.checks.join(", ")}. Removed: ${a.validation.removed}.` }) : null,
-      minor.length ? el("ul", { class: "limits" }, minor.map((l) => {
-        const [lab, cls] = LIMIT_LABEL[l.type] || [l.type, ""];
-        return el("li", {}, el("span", { class: `badge ${cls}`, text: lab }), el("span", { text: (l.specialist ? `${l.specialist}: ` : "") + l.text }));
-      })) : null));
-  }
   const foot = el("div", { class: "answer-foot" });
   if (a.sources && a.sources.length) {
-    foot.append(el("span", { class: "verify" }, svg("check"), `${a.sources.length} citations verified against source pages${a.validation && a.validation.removed ? ` · ${a.validation.removed} unsupported item(s) removed` : ""}`));
+    foot.append(el("span", { class: "verify" }, svg("check"), `${a.sources.length} citations verified against source pages`));
     if (a.table && a.table.length) foot.append(el("button", { class: "btn btn-ghost", type: "button", onclick: () => copyText(tableMarkdown(a), "Table copied") }, svg("copy"), "Copy table"));
   }
   // The research answer comes first; everything about the client (picker, client line, trade
@@ -689,23 +671,16 @@ function clientBlock(a, secs, trace) {
       el("summary", { text: `More client details (${hidden.length} section${hidden.length === 1 ? "" : "s"})` }), hidden) : null);
 }
 
-function fmtMs(ms) { return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`; }
-
 function agentTrace(a) {
   const g = a.agent || {};
   const steps = a.trace || [];
-  const n = (x, w) => `${(x || 0).toLocaleString()} ${w}`;
   return el("details", { class: "audit agent-trace" },
     el("summary", { text: `How I worked this out · ${steps.length} step${steps.length === 1 ? "" : "s"}${g.seconds ? ` · ${g.seconds} s` : ""}` }),
     el("ol", { class: "steps" }, steps.map((t) => el("li", { "data-step": t.id, class: t.ok ? null : "failed" },
       svg(TOOL_ICON[t.tool] || "spark"),
       el("div", {},
         el("div", { class: "st-label" }, el("span", { class: "ref static", text: t.id }), " ", t.label),
-        el("div", { class: "st-sum", text: [t.summary, t.ms ? fmtMs(t.ms) : null].filter(Boolean).join(" · ") }))))),
-    el("div", { class: "st-meta", text: g.deterministic
-      ? "No model was used: every line comes straight from the client book."
-      : `Model ${g.model} · ${g.turns} turn${g.turns === 1 ? "" : "s"} · ${n((g.input_tokens || 0) + (g.cache_creation_input_tokens || 0) + (g.cache_read_input_tokens || 0), "input")} (${n(g.cache_read_input_tokens, "from cache")}) / ${n(g.output_tokens, "output")} tokens` }),
-    el("div", { class: "st-meta", text: "Checks run on every agent answer: OCBC research is shown exactly as the validated research pipeline produced it (the AI only chooses which items to show); figures with decimals or of 100 and above in client-book and suggestion sections are matched against the data the agent read; no web or market data is available to the agent." }));
+        el("div", { class: "st-sum", text: t.summary || "" }))))));
 }
 
 function agentVerify(a) {
@@ -1102,23 +1077,14 @@ async function openSource(answer, n) {
     el("button", { class: "btn btn-ghost", type: "button", onclick: () => copyText(`${s.title} — published ${s.publication_label}, PDF p.${s.pdf_page} — ${s.url}\n"${s.excerpt}"`, "Citation copied") }, svg("copy"), "Copy citation")));
   const kv = el("dl", { class: "kv" });
   const add = (k, v) => { if (v !== null && v !== undefined && v !== "") kv.append(el("dt", { text: k }), el("dd", {}, v)); };
-  add("Publication date", `${s.publication_label} (${meta ? meta.date_basis : "—"}; confidence ${s.date_confidence})`);
-  if (meta) {
-    add("Website listing date", meta.listing_date || "—");
-    add("Printed date", meta.printed_date || "—");
-  }
-  add("Data date (stated)", s.data_date);
-  add("Document age", freshBadge(s.freshness));
-  add("Freshness rule", s.freshness ? s.freshness.rule : null);
-  add("Report type", s.report_type);
-  add("Page", `PDF page ${s.pdf_page}${s.printed_page ? ` · printed page ${s.printed_page}` : ""}${meta ? ` of ${meta.page_count}` : ""}`);
+  add("Published", s.publication_label);
+  add("Date stated in the report", s.data_date);
+  add("Report age", freshBadge(s.freshness));
+  add("Page", `Page ${s.pdf_page}${meta ? ` of ${meta.page_count}` : ""}`);
   add("Section", s.section);
-  add("Document ID", s.doc_id);
-  if (meta) add("Content hash", meta.sha256.slice(0, 16) + "…");
-  add("Source URL", el("a", { href: s.url, target: "_blank", rel: "noopener noreferrer", text: s.url }));
+  add("Link", el("a", { href: s.url, target: "_blank", rel: "noopener noreferrer", text: s.url }));
   body.append(kv);
-  if (s.ocr) body.append(el("div", { class: "flag", text: "This excerpt was extracted by OCR from an image-only page — verify against the page image." }));
-  if (meta && meta.date_flags && meta.date_flags.length) meta.date_flags.forEach((f) => body.append(el("div", { class: "flag", text: f })));
+  if (s.ocr) body.append(el("div", { class: "flag", text: "This passage was read from an image of the page. Check it against the page above." }));
   $("drawerClose").focus();
 }
 function closeDrawer() { $("drawer").hidden = true; $("scrim").hidden = !document.getElementById("app").classList.contains("nav-open"); }
@@ -1341,6 +1307,7 @@ $("demoToggle").addEventListener("click", async () => {
   } catch (_) { /* gateway unreachable: meta will show offline */ }
   await loadMeta();
   if (!(state.session && state.session.public_mode)) loadDemo();
+  else $("navAdmin").hidden = true;   // the corpus admin page is for the team, not salespeople
   renderEmpty();
   loadHistory();
   route(location.pathname === "/admin" ? "admin" : "chat", false);

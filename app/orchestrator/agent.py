@@ -38,8 +38,10 @@ MAX_TURNS = 8               # model calls per answer (the last one may not call 
 MAX_RESEARCH_CALLS = 2      # full research-pipeline runs per answer
 MAX_SECTIONS, MAX_POINTS, MAX_ROWS = 6, 8, 15
 # Research limitations that research mode shows under "Please note"; agent answers always carry them too.
-MATERIAL_LIMITS = {"horizon_not_covered", "no_relevant_information", "document_inaccessible", "extraction_failed",
-                   "conflicting_sources", "missing_coverage", "error", "horizon_passed"}
+# Only gaps in what the research covers reach the salesperson; reports that couldn't be read and other
+# internal issues stay out of the answer.
+MATERIAL_LIMITS = {"horizon_not_covered", "no_relevant_information", "conflicting_sources", "missing_coverage",
+                   "horizon_passed"}
 PLAYBOOK_PATH = Path(__file__).with_name("playbook.md")
 KINDS = ("client_data", "ocbc_research", "ai_suggestion", "general")
 SECTION_ORDER = ("client_data", "ai_suggestion", "ocbc_research", "general")   # how answers are shown

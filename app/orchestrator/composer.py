@@ -289,7 +289,10 @@ def compose(question: str, plan, responses: list[SpecialistResponse], validator,
                                                           f"dates ({fmt_range(date.fromisoformat(pub_dates[0]), date.fromisoformat(pub_dates[-1]))}); "
                                                           f"check each source's date.", "specialist": None})
     has_content = bool(table or any(sections.values()))
-    blocking = [l for l in limitations if l["type"] not in ("note", "model", "mixed_dates", "limitation")]
+    # A report that couldn't be downloaded or read, or a statement the validator removed, is an internal
+    # matter: it doesn't make the answer "partial" for the salesperson. Gaps in what the research covers do.
+    blocking = [l for l in limitations if l["type"] not in ("note", "model", "mixed_dates", "limitation",
+                                                            "document_inaccessible", "extraction_failed", "validation")]
     status = "complete" if has_content and not blocking else "partial" if has_content else "no_evidence"
     window = corpus.get("window") or {}
     return {
