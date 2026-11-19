@@ -488,7 +488,8 @@ def _trade_rows(items: list[Item], today: date, offsets: list[tuple[Item, Item]]
             prod = {"spot": "Spot", "forward": "Forward", "ndf": "NDF (cash-settled)"}[i.product]
         rows.append({"trade_date": day(i.trade_date), "side": i.side, "notional": amt(i.ccy, i.notional),
                      "product": prod, "maturity": day(i.maturity), "status": status_label(i),
-                     "note": note or i.purpose, "open": i.open})
+                     "note": note or i.purpose, "open": i.open,
+                     "trade_iso": i.trade_date.isoformat() if i.trade_date else ""})
     return rows
 
 

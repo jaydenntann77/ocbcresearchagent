@@ -293,3 +293,22 @@ def test_figure_rules():
 ])
 def test_router(q, kw, want):
     assert choose(q, **kw) == want
+
+
+def test_executive_summary_opens_with_picked_research_verbatim():
+    script = [tool_use(("client_overview", {"client_id": "C001"}), ("ocbc_research", {"question": "OCBC USD/SGD view"})),
+              final(ANSWER | {"summary_refs": ["R2", "R99"]})]
+    answer, *_ = run_agent(script)
+    picked = answer["summary_research"]
+    assert [p["item"] for p in picked] == ["R2"]                       # unknown ids are dropped
+    assert picked[0]["citations"] and set(picked[0]["citations"]) <= set(answer["cited_sources"])
+
+
+def test_executive_summary_falls_back_to_quoted_research_and_sections_are_ordered():
+    script = [tool_use(("client_overview", {"client_id": "C001"}), ("ocbc_research", {"question": "OCBC USD/SGD view"})),
+              final(ANSWER)]                                            # no summary_refs from the model
+    answer, *_ = run_agent(script)
+    quoted = [p["item"] for s in answer["sections"] for p in s["points"] if p.get("type") == "summary"]
+    assert [p["item"] for p in answer["summary_research"]] == quoted[:ag.MAX_SUMMARY_REFS]
+    kinds = [s["kind"] for s in answer["sections"]]
+    assert kinds == sorted(kinds, key=ag.SECTION_ORDER.index)           # client book, ideas, research, general

@@ -167,6 +167,8 @@ button.mode-pill:disabled { cursor: default; }
 .pick-input { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: inherit; min-width: 240px; background: var(--panel); color: var(--ink); }
 .answer-client { padding: 14px 20px 16px; border-top: 1px solid var(--line-2); }
 .answer-client .client-bar:last-child { margin-bottom: 0; }
+/* Supporting research, sources and the audit trail: the last thing in an answer, after the client box. */
+.answer-tail { padding: 4px 20px 12px; border-top: 1px solid var(--line-2); }
 .trade-ctx { display: flex; flex-direction: column; gap: 12px; border-left: 3px solid var(--line); padding-left: 10px; }
 .trade-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
 .trade-line { line-height: 1.5; }
@@ -250,6 +252,12 @@ table.fc sup.passed { font-size: 10px; color: var(--warn); margin-left: 3px; fon
 .badge.agent { background: var(--violet-tint); color: var(--violet); }
 .badge.agent svg { width: 13px; height: 13px; }
 .ag-headline { font-size: 16px; font-weight: 600; line-height: 1.45; margin: 0 0 16px; color: var(--ink); }
+.ag-summary { margin: 0 0 16px; }
+.ag-summary h3 { margin: 0 0 6px; font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); }
+.ag-summary .ag-headline { font-size: 15.5px; font-weight: 500; line-height: 1.55; margin: 0 0 4px; }
+.ag-client .trade-ctx { border-left: 0; padding-left: 0; }
+.ag-more > .ag-sec { margin: 10px 0 0; background: #fff; }
+.ag-more .table-wrap { max-height: 260px; overflow: auto; }
 .ag-sec { margin: 0 0 16px; padding: 12px 14px 12px 16px; border: 1px solid var(--line-2); border-left: 3px solid var(--line); border-radius: 0 10px 10px 0; background: #fcfcfd; }
 .ag-sec.k-client_data { border-left-color: var(--teal); }
 .ag-sec.k-ocbc_research { border-left-color: var(--red); background: #fffdfd; }
@@ -365,7 +373,7 @@ table.list td.num { text-align: right; font-variant-numeric: tabular-nums; }
   .composer-hint { display: none; }
   .composer { padding-bottom: 10px; }
   .ag-sec { padding: 10px 10px 10px 12px; }
-  .answer-head, .answer-body, .answer-foot, .answer-sources, .answer-client { padding-left: 14px; padding-right: 14px; }
+  .answer-head, .answer-body, .answer-foot, .answer-sources, .answer-client, .answer-tail { padding-left: 14px; padding-right: 14px; }
   .hero h1 { font-size: 23px; }
   .kv { grid-template-columns: minmax(0, 1fr); }
   .kv dt { margin-top: 6px; }
@@ -379,3 +387,17 @@ table.list td.num { text-align: right; font-variant-numeric: tabular-nums; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
 .notice.model-switch { flex-direction: column; align-items: flex-start; gap: 10px; }
 .notice.model-switch .controls { display: flex; gap: 8px; }
+/* Executive summary: OCBC's view in brief (verbatim / validated research) above the AI's brief. */
+.ag-sum-research { margin: 0 0 10px; padding: 8px 12px; border-left: 3px solid var(--red); background: #fffdfd; border-radius: 0 8px 8px 0; }
+.ag-sum-research .ag-points { margin: 6px 0 0; }
+.trade-ideas { margin-top: 2px; padding: 8px 12px; background: var(--violet-tint, #f1ecfd); border-radius: 8px; }
+.trade-ideas h5 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; color: var(--violet, #6233c7); }
+.copy-summary { display: flex; justify-content: flex-end; margin: -4px 0 14px; }
+/* Insights (client box and client-memory card): green so they stand out. */
+.insights { padding: 10px 14px; background: #e8f6ec; border: 1px solid #b7e0c2; border-left: 4px solid #1f9d55; border-radius: 0 8px 8px 0; }
+.client-insights { margin: 8px 0; }
+.insights h4 { margin: 0 0 6px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #157a41; }
+.insights ul.limits { margin: 0; }
+.insights li { color: #14532d; }
+.trade-ideas.none { background: #f7f8fa; }
+.trade-ideas.none h5 { color: var(--ink-3); }

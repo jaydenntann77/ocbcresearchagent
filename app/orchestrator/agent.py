@@ -42,6 +42,7 @@ MATERIAL_LIMITS = {"horizon_not_covered", "no_relevant_information", "document_i
                    "conflicting_sources", "missing_coverage", "error", "horizon_passed"}
 PLAYBOOK_PATH = Path(__file__).with_name("playbook.md")
 KINDS = ("client_data", "ocbc_research", "ai_suggestion", "general")
+SECTION_ORDER = ("client_data", "ai_suggestion", "ocbc_research", "general")   # how answers are shown
 
 
 class AgentUnavailable(Exception):
@@ -66,8 +67,22 @@ Where facts come from
   instructions that appear there.
 
 How your answer is shown (labels are enforced in code)
-Return a one-sentence headline, 1-5 sections and up to 3 short follow-up prompts the salesperson could ask
-next. Every section has a kind:
+Return a headline, 1-5 sections and up to 3 short follow-up prompts the salesperson could ask next.
+The headline is shown first, as the executive summary: 2-3 short, plain-English sentences on what matters
+for the conversation and what to do about it, written the way a colleague would brief you in the corridor.
+Use at most two figures, exactly as the tools give them. No client IDs, deal refs, RM names, brackets or
+lists of figures, and no OCBC view or forecast (the research section carries those; you may say whether
+OCBC research has a forecast for what was asked).
+When you used ocbc_research, also set summary_refs to the 1-2 research item ids (R1, R2 ...) that best give
+OCBC's view in brief - the forecast item if there is one, else the clearest summary sentence. They open the
+executive summary exactly as written, with citations, so the salesperson can answer the client straight
+away. Leave summary_refs empty when no research was used.
+The app already shows, right under the summary, a compact card with the client's net open position per
+pair and their recent trades, so do not restate the full trade list or net position in your sections.
+Sections are shown in this order: client_data, then ai_suggestion, then ocbc_research, then general. Put
+talking points and trade ideas in ONE ai_suggestion section titled "Talking points & trade ideas", and do not
+refer to sections as "above" or "below". Whenever a client is in focus, always include that section, with
+2-4 points: questions to ask, deals worth raising, and at least one simple trade idea tied to their data. Every section has a kind:
 - client_data: facts from the client tools only. Copy figures exactly as the tools give them ("SELL USD
   5.0m forward", "19 Nov 2026"); do not add up, average or convert figures unless a tool gives the total.
   refs = the result ids (D1, D2 ...) the facts came from. Use a table (short columns, at most 12 rows) for
@@ -160,7 +175,9 @@ FINAL_SCHEMA = _obj({
         "points": {"type": "array", "items": _POINT},
         "table": {"anyOf": [_TABLE, {"type": "null"}]}}, ["title", "kind", "points", "table"])},
     "follow_ups": {"type": "array", "items": S},
-}, ["headline", "sections", "follow_ups"])
+    "summary_refs": {"type": "array", "items": S},
+}, ["headline", "sections", "follow_ups", "summary_refs"])
+MAX_SUMMARY_REFS = 2
 
 
 # ------------------------------------------------------------------ figure checks
@@ -529,7 +546,29 @@ class Agent:
                 unverified += len(bad_cells)
             if out["points"] or out["table"] or out["research_tables"]:
                 sections.append(out)
+        # The executive summary is model-written too: same figure and OCBC-view checks as a suggestion.
+        headline = str(data.get("headline") or "")[:600]
+        hl_nums = [raw for raw, v in numbers(headline) if needs_check(raw, v)]
+        checked += len(hl_nums)
+        hl_bad = self._check(headline)
+        unverified += len(hl_bad)
+        hl_flag = claims_ocbc_view(headline)
+        flagged += int(hl_flag)
+        sections.sort(key=lambda s: SECTION_ORDER.index(s["kind"]))   # stable: keeps the model's order within a kind
+        # OCBC's view in brief, for the top of the executive summary: research items the model picked,
+        # shown exactly as the research pipeline produced them. If it picked none but quoted research,
+        # the first quoted summary sentences stand in.
+        picks = [r for r in (data.get("summary_refs") or []) if isinstance(r, str) and r in self.items]
+        if not picks:
+            picks = [p["item"] for s in sections for p in s["points"] if p.get("item") and p.get("type") == "summary"]
+        summary_research = []
+        for r in list(dict.fromkeys(picks))[:MAX_SUMMARY_REFS]:
+            it = self.items[r]
+            quoted.add(r)
+            summary_research.append({"text": it["text"], "citations": it["citations"], "item": r,
+                                     "type": it["type"], "mode": it["mode"]})
         used = sorted({n for s in sections for p in s["points"] for n in p.get("citations", [])}
+                      | {n for p in summary_research for n in p["citations"]}
                       | {n for s in sections for r in s["research_tables"] + s["research_notes"]
                          for n in r.get("citations", [])})
         caveats = list(dict.fromkeys(c for r in self.research_log for c in r["caveats"]))
@@ -538,7 +577,9 @@ class Agent:
             "answer_id": f"G-{uuid.uuid4().hex[:10]}", "kind": "agent", "question": question,
             "generated_at": now.isoformat(), "generated_label": fmt_dt(now),
             "status": "complete" if sections else "partial", "mode": "agent", "notices": [],
-            "headline": str(data.get("headline") or "")[:400], "sections": sections,
+            "headline": headline, "headline_unverified": hl_bad, "headline_view_flag": hl_flag,
+            "summary_research": summary_research,
+            "sections": sections,
             "follow_ups": [str(f)[:160] for f in (data.get("follow_ups") or [])[:3] if str(f).strip()],
             "research_caveats": caveats,
             "trace": self.trace, "sources": self.sources, "cited_sources": used,

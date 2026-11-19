@@ -25,6 +25,7 @@ guard.install(guard.Policy(
 
 import json  # noqa: E402
 import queue  # noqa: E402
+import re  # noqa: E402
 import threading  # noqa: E402
 from concurrent.futures import ThreadPoolExecutor  # noqa: E402
 from datetime import date, datetime  # noqa: E402
@@ -172,22 +173,53 @@ def answer_question(question: str, state: dict, emit) -> tuple[dict, dict]:
         new_state["last_client"] = {"name": entry["name"], "company": entry["company"]}
     return answer, new_state
 
+# "jeremy asked for usd/sgd", "Jeremy wants the SORA outlook": a person the salesperson named.
+NAME_ASK_RE = re.compile(r"^\s*(?P<name>[A-Za-z][A-Za-z'-]{1,30})\s+(?:asked|asks|wants|wanted|is asking|was asking|"
+                         r"needs|enquired|inquired|requested)\b\s*(?P<rest>.*)$", re.I | re.S)
+NOT_NAMES = {"he", "she", "they", "client", "customer", "someone", "somebody", "who", "what", "my", "our", "the",
+             "boss", "treasurer", "cfo", "ceo", "everyone", "nobody", "it", "i", "we", "you", "he's", "she's"}
+
+
+def unknown_person(question: str) -> tuple[str, str] | None:
+    """(name, rest of the question) when it opens with a person's name and what they asked."""
+    m = NAME_ASK_RE.match(question or "")
+    if not m or m["name"].lower() in NOT_NAMES:
+        return None
+    name = m["name"]
+    return (name[:1].upper() + name[1:] if name.islower() else name), (m["rest"].strip() or question)
+
+
+def memory_entry(client: dict, company: str) -> dict | None:
+    """The client-memory card (insights + save) for a person whose company is not in the client book."""
+    return client_memory.propose(f"{client['mention']} from {company} asked {client.get('ask_rest') or ''}", None)
+
+
 def identify_client(question: str, state: dict, emit) -> dict | None:
     """Which client the question is about. Falls back to the client confirmed earlier
     in this conversation (marked inherited) when the question names nobody."""
     emit("Identifying the client")
     found = clientdata.identify(question)
+    lead = NAME_ASK_RE.match(question or "")
+    if (not found or found["status"] == "none") and lead and lead["name"].islower()             and lead["name"].lower() not in NOT_NAMES:
+        # First names only count when capitalised ("grace period" is not Grace Lim), but one that opens
+        # the question before "asked" / "wants" is a person: "jimmy asked ..." means Jimmy.
+        i = lead.start("name")
+        found = clientdata.identify(question[:i] + question[i].upper() + question[i + 1:]) or found
     last = state.get("client")
     if last and last.get("client_id") in DEMO_CLIENT_IDS and not clientdata.exists(last["client_id"]):
         last = None   # a demo-mode client is not carried over once demo mode is off
-    if found and found["status"] == "ambiguous" and last:
-        # "Jimmy" after Jimmy Tan was confirmed in this conversation means Jimmy Tan.
-        same = [c for c in found["candidates"] if c["client_id"] == last["client_id"]
-                and (c.get("contact_id") == last.get("contact_id") or not c.get("contact_id"))]
-        if len(same) == 1:
-            found = found | {"status": "match", "candidates": same}
+    # A name that matches several clients ("Jimmy") is never resolved by guessing, not even from the
+    # client earlier in this conversation: routed_answer answers with research and asks which one.
     if found and found["status"] != "none":
         return found | {"inherited": False, "logged": None, "declined": False}
+    if client_memory.CLIENT_RE.match(question):
+        return None   # "Jeremy from Company A asked ...": a client outside the book, for the client-memory card
+    person = unknown_person(question)
+    if person:
+        # "jeremy asked for usd/sgd" and no Jeremy in the book: never the earlier client; ask which company.
+        name, rest = person
+        return {"status": "ambiguous", "unknown": True, "candidates": [], "mention": name, "ask_rest": rest,
+                "research_question": rest, "inherited": False, "logged": None, "declined": False}
     if last:
         return {"status": "match", "candidates": [last], "research_question": question, "mention": "",
                 "inherited": True, "logged": None, "declined": False}
@@ -215,6 +247,39 @@ def attach_trade_context(client: dict, answer: dict, question: str, emit) -> Non
                                    for c in contexts]
 
 
+def agent_pairs(answer: dict, question: str, client_id: str) -> list[str]:
+    """Pairs for an agent answer's client card: named in the question, else used by the agent's tools,
+    else the client's most active open pairs."""
+    pairs = find_pairs(question)
+    if not pairs:
+        pairs = list(dict.fromkeys(str(t["args"]["pair"]) for t in answer.get("trace") or []
+                                   if t.get("ok") and (t.get("args") or {}).get("pair")))
+    if not pairs:
+        ov = clientdata.view("overview", client_id) or {}
+        ranked = sorted((p for p in ov.get("pairs") or [] if p.get("open_deals")),
+                        key=lambda p: -int(p.get("open_deals") or 0))
+        pairs = [p["pair"] for p in ranked]
+    return pairs[:3]
+
+
+def attach_agent_trade_context(client: dict, answer: dict, question: str, emit) -> None:
+    """The same client card research answers get: rule-based facts and ideas, the research link
+    (from any forecast table the agent quoted) and the optional Haiku wording."""
+    cid = client["candidates"][0]["client_id"]
+    try:
+        pairs = agent_pairs(answer, question, cid)
+    except (ServiceError, KeyError, TypeError, ValueError):
+        return
+    if not pairs:
+        return
+    emit("Checking the client's trades")
+    contexts = clientdata.trade_context(cid, pairs)
+    if contexts:
+        quoted = {"table": [r for s in answer.get("sections") or [] for r in s.get("research_tables") or []]}
+        client["trade_context"] = [trade_note.polish(c | {"research_link": trade_note.research_link(quoted, c)})
+                                   for c in contexts]
+
+
 def attach_past_asks(client: dict) -> None:
     """Earlier logged asks from the confirmed contact, for the client box. Looked up before this
     question is logged, so they are the contact's previous asks."""
@@ -222,6 +287,10 @@ def attach_past_asks(client: dict) -> None:
     past = clientdata.past_asks(c["client_id"], c.get("contact_id"))
     if past and past.get("count"):
         client["past_asks"] = past
+    # Client-memory insights (topics asked before, how often, how recently) for a client in the book too.
+    who = c.get("contact_name") or c.get("client_name") or "this client"
+    client["insights"] = client_memory.insights_for_asks(
+        who, (past or {}).get("items") or [], client.get("research_question") or client.get("for_question") or "")
 
 
 def agent_answer(question: str, client: dict | None, state: dict, emit) -> tuple[dict | None, str | None]:
@@ -255,9 +324,36 @@ def agent_answer(question: str, client: dict | None, state: dict, emit) -> tuple
     return None, reason
 
 
+def generic_answer(question: str, client: dict, prior: dict, emit) -> tuple[dict, dict]:
+    """The name is not clearly one client (several match, or none does): no client is assumed. OCBC
+    research (with its forecast) on what was asked comes first, with the name taken out; the client box
+    under it asks which one - pick from the list, or type the company."""
+    research_q = client.get("research_question") or question
+    answer, state = answer_question(research_q, prior, emit)
+    answer["question"] = question
+    answer.pop("pending_memory", None)          # the client box asks for the company first
+    mention = client.get("mention") or "That name"
+    if client.get("unknown"):
+        text = (f"No client contact named “{mention}” is in the client book, so this is OCBC research only. "
+                f"Tell me which company {mention} is from (below) for client details.")
+    else:
+        names = ", ".join(dict.fromkeys(
+            f"{c['contact_name']} ({c['client_name']})" if c.get("contact_name") else c["client_name"]
+            for c in client["candidates"][:4]))
+        text = (f"“{mention}” matches several clients ({names}), so this is OCBC research only. "
+                f"Pick which one below for client details.")
+    answer["notices"] = [{"kind": "info", "text": text}, *answer.get("notices", [])]
+    answer["client"] = client
+    if prior.get("client"):
+        state["client"] = prior["client"]
+    return answer, state
+
+
 def routed_answer(question: str, prior: dict, mode: str, emit) -> tuple[dict, dict]:
     """Research mode or agent mode (app.orchestrator.router), with the client box for either."""
     client = identify_client(question, prior, emit)
+    if client and client["status"] == "ambiguous":
+        return generic_answer(question, client, prior, emit)
     matched = bool(client and client["status"] == "match")
     route = router.choose(question, client_matched=matched, last_mode=prior.get("last_mode"),
                           forced=mode if mode != "auto" else None)
@@ -280,10 +376,13 @@ def routed_answer(question: str, prior: dict, mode: str, emit) -> tuple[dict, di
     else:
         state = dict(prior)
     if answer.get("kind") == "agent":
-        # Agent answers keep the client line (to log the ask) but not the research trade note.
+        # Agent answers get the same compact client card as research answers (net position per pair,
+        # "More details" with the trade list), shown right under the executive summary.
         if matched:
             answer["client"] = client
             state["client"] = client["candidates"][0]
+            attach_agent_trade_context(client, answer, question, emit)
+            attach_past_asks(client)
         elif prior.get("client"):
             state["client"] = prior["client"]
         return answer, state
@@ -317,6 +416,39 @@ def pick_reply(cid: str, question: str, state: dict, pending: dict, pick: dict, 
     answer = _simple(question, "info", "")
     answer.update(suggestions=[], client=client)
     return answer, {**state, "client": pick}
+
+
+def looks_like_company(text: str) -> bool:
+    """A short reply naming a company, not a new question."""
+    t = (text or "").strip()
+    return 0 < len(t.split()) <= 6 and "?" not in t and not find_pairs(t) and not unknown_person(t)
+
+
+def mark_unlisted(cid: str, mid: str, owner: str, company: str) -> tuple[dict, dict] | None:
+    """The earlier answer's client box: the company named is not in the book; offer the memory card."""
+    found = conversations.get_message(cid, mid, owner)
+    if not found:
+        return None
+    earlier, _ = found
+    client = earlier.get("client") or {}
+    entry = memory_entry(client, company)
+    client.update(status="unlisted", company=company.strip())
+    conversations.update_answer(cid, mid, earlier | {"client": client, "pending_memory": entry})
+    return client, entry
+
+
+def unlisted_reply(cid: str, question: str, state: dict, pending: dict, owner: str):
+    marked = mark_unlisted(cid, pending["message_id"], owner, question)
+    answer = _simple(question, "info", "")
+    answer["suggestions"] = []
+    if marked:
+        client, entry = marked
+        answer["notices"] = [{"kind": "info", "text": f"{question.strip()} is not in the client book, so there are no "
+                                                      f"trades to show. You can save {client['mention']}'s ask to "
+                                                      f"client memory below."}]
+        answer["pending_memory"] = entry
+        return answer, {**state, "last_client": {"name": entry["name"], "company": entry["company"]}} if entry else state
+    return answer, state
 
 
 @app.get("/v1/health")
@@ -405,6 +537,9 @@ def chat(payload: dict = Body(...), x_ra_session: str = Header(default="local"))
                 answer.update(suggestions=[], model_switch=model_switch.proposal(command))
             elif pick:
                 answer, state = pick_reply(cid, question, prior, pending, pick, x_ra_session, emit)
+            elif pending and pending.get("unknown") and looks_like_company(question):
+                # "SuperHeroes Bank" in reply to "which company is Jeremy from?", and not in the book.
+                answer, state = unlisted_reply(cid, question, prior, pending, x_ra_session)
             else:
                 answer, state = routed_answer(question, prior, mode, emit)
                 if answer.get("status") != "error":
@@ -419,7 +554,8 @@ def chat(payload: dict = Body(...), x_ra_session: str = Header(default="local"))
         if state is not None:
             client = answer.get("client") or {}
             if client.get("status") == "ambiguous":
-                state["pending_pick"] = {"message_id": mid, "candidates": client["candidates"]}
+                state["pending_pick"] = {"message_id": mid, "candidates": client["candidates"],
+                                         "unknown": bool(client.get("unknown"))}
             conversations.set_state(cid, state)
         q.put({"type": "answer", "conversation_id": cid, "message_id": mid, "answer": answer})
         q.put(None)
@@ -489,6 +625,11 @@ def client_pick(cid: str, mid: str, payload: dict = Body(...), x_ra_session: str
     text = str(payload.get("text") or "").strip()[:200]
     if text:
         pick = clientdata.resolve_pick(text, client["candidates"])
+        if not pick and client.get("unknown"):
+            marked = mark_unlisted(cid, mid, x_ra_session, text)
+            _clear_pending(cid, mid)
+            if marked:
+                return {"client": marked[0], "pending_memory": marked[1]}
         if not pick:
             raise HTTPException(400, f'No single client matches "{text}". Choose a letter, or type more of the '
                                      f"company name.")

@@ -88,8 +88,16 @@ MATCH = {"status": "match", "research_question": "", "mention": "Harbourline",
          "candidates": [{"client_id": "C001", "client_name": "Harbourline Logistics Pte Ltd",
                          "contact_id": None, "contact_name": None}]}
 
+AMBIG = {"status": "ambiguous", "research_question": "asked about USD/CNH", "mention": "Jimmy",
+         "candidates": [{"client_id": "C001", "client_name": "Harbourline Logistics Pte Ltd", "contact_id": "P001",
+                         "contact_name": "Jimmy Tan"},
+                        {"client_id": "C002", "client_name": "Meridian Foods Holdings Ltd", "contact_id": "P003",
+                         "contact_name": "Jimmy Lee"}]}
+
 class CD:
-    def identify(self, q): return MATCH if "Harbourline" in q else {"status": "none", "candidates": []}
+    def identify(self, q):
+        if "Jimmy" in q: return AMBIG
+        return MATCH if "Harbourline" in q else {"status": "none", "candidates": []}
     def exists(self, cid): return True
     def view(self, name, client_id=None, **p): return OVERVIEW
     def past_asks(self, *a): return None
@@ -116,6 +124,21 @@ a, s = service.routed_answer("Brief me on Harbourline", {}, "research", quiet)
 out["forced_research"] = a.get("kind")
 a, s = service.routed_answer("What's a zero-cost collar?", {}, "auto", quiet)
 out["collar_no_model"] = {"kind": a.get("kind"), "notice": (a["notices"] or [{}])[0].get("text", "")}
+# "Jimmy" right after Meridian's Jimmy Lee: still not assumed, and not asked - a generic research answer.
+prior = {"client": AMBIG["candidates"][1], "last_mode": "agent"}
+a, s = service.routed_answer("Jimmy asked about USD/CNH", prior, "auto", quiet)
+out["ambiguous"] = {"kind": a.get("kind"), "client": a["client"]["status"], "picks": len(a["client"]["candidates"]),
+                    "notice": a["notices"][0]["text"], "kept": s.get("client", {}).get("client_id")}
+# Typed in lower case at the start, a first name still counts: "jimmy asked ..." is the three Jimmys.
+a, s = service.routed_answer("jimmy asked for usd/sgd", prior, "auto", quiet)
+out["lower"] = {"status": a["client"]["status"], "unknown": bool(a["client"].get("unknown")),
+                "picks": len(a["client"]["candidates"])}
+# A name not in the book: research first, then "which company is Jeremy from?" - never the earlier client.
+a, s = service.routed_answer("jeremy asked for usd/sgd", prior, "auto", quiet)
+out["unknown"] = {"kind": a.get("kind"), "client": a["client"], "notice": a["notices"][0]["text"]}
+out["memory"] = service.memory_entry(a["client"], "SuperHeroes Bank")
+out["company_reply"] = [service.looks_like_company(t) for t in ("SuperHeroes Bank", "what about usd/jpy?",
+                                                                  "Jimmy asked about gold")]
 out["research_calls"] = research_calls
 print(json.dumps(out))
 """
@@ -135,4 +158,17 @@ def test_routing_between_modes():
     assert out["forced_research"] is None
     # Agent-only ask with no model and no client: research is shown, with the reason.
     assert out["collar_no_model"]["kind"] is None and "Agent mode needs" in out["collar_no_model"]["notice"]
-    assert len(out["research_calls"]) == 3
+    # A name matching several clients: OCBC research on the question with the name removed, no client box.
+    amb = out["ambiguous"]
+    assert amb["kind"] is None and amb["client"] == "ambiguous" and amb["picks"] == 2 and amb["kept"] == "C002"
+    assert "matches several clients" in amb["notice"] and "Jimmy Tan (Harbourline" in amb["notice"]
+    assert out["research_calls"][-2] == "asked about USD/CNH"
+    unk = out["unknown"]
+    assert unk["kind"] is None and unk["client"]["unknown"] and unk["client"]["candidates"] == []
+    assert unk["client"]["mention"] == "Jeremy" and "which company Jeremy is from" in unk["notice"]
+    assert out["research_calls"][-1] == "for usd/sgd"
+    mem = out["memory"]
+    assert mem["name"] == "Jeremy" and mem["company"] == "SuperHeroes Bank" and "insights" in mem
+    assert out["company_reply"] == [True, False, False]
+    assert out["lower"] == {"status": "ambiguous", "unknown": False, "picks": 2}
+    assert len(out["research_calls"]) == 6

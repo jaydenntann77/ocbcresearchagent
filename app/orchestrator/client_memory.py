@@ -136,10 +136,26 @@ def insights(name: str, description: str, limit: int = 500) -> list[str]:
     with closing(_conn()) as con:
         rows = con.execute("SELECT ask_description, asked_at FROM client_asks WHERE lower(client_name)=lower(?) "
                            "ORDER BY id DESC LIMIT ?", (name, limit)).fetchall()
-    if not rows:
+    return insight_lines(name, [(d, _when(t)) for d, t in rows], description)
+
+
+def insights_for_asks(name: str, items: list[dict], description: str) -> list[str]:
+    """The same insights for a client in the client book, from its logged asks
+    ({"question", "asked_at": ISO time}, newest first)."""
+    def when(s):
+        try:
+            return datetime.fromisoformat(str(s)[:19]).replace(tzinfo=SGT)
+        except ValueError:
+            return None
+    return insight_lines(name, [(i.get("question") or "", when(i.get("asked_at"))) for i in items], description)
+
+
+def insight_lines(name: str, history: list[tuple[str, datetime | None]], description: str) -> list[str]:
+    """Plain-language observations from (ask, when) pairs, newest first."""
+    if not history:
         return [f"First recorded ask for {name}."]
     now = datetime.now(SGT)
-    asks = [(d, _when(t), tags(d)) for d, t in rows]  # newest first
+    asks = [(d, dt, tags(d)) for d, dt in history]  # newest first
     lines = [f"{len(asks)} previous ask(s) on record; the latest was {_ago(asks[0][1], now)}."]
     now_tags = tags(description)
     for tg in now_tags:
