@@ -26,6 +26,7 @@ guard.install(guard.Policy(
 import json  # noqa: E402
 import queue  # noqa: E402
 import re  # noqa: E402
+import sys  # noqa: E402
 import threading  # noqa: E402
 from concurrent.futures import ThreadPoolExecutor  # noqa: E402
 from datetime import date, datetime  # noqa: E402
@@ -283,13 +284,15 @@ def attach_past_asks(client: dict) -> None:
     """Earlier logged asks from the confirmed contact, for the client box. Looked up before this
     question is logged, so they are the contact's previous asks."""
     c = client["candidates"][0]
-    past = clientdata.past_asks(c["client_id"], c.get("contact_id"))
-    if past and past.get("count"):
-        client["past_asks"] = past
-    # Client-memory insights (topics asked before, how often, how recently) for a client in the book too.
+    past = clientdata.past_asks(c["client_id"], c.get("contact_id"), limit=10)
+    recent = (past or {}).get("items") or []
+    # Client-memory insights (topics asked before, how often, how recently) for a client in the book too,
+    # from the last 10 asks and the full count; the box lists the 3 most recent.
     who = c.get("contact_name") or c.get("client_name") or "this client"
     client["insights"] = client_memory.insights_for_asks(
-        who, (past or {}).get("items") or [], client.get("research_question") or client.get("for_question") or "")
+        who, recent, client.get("research_question") or client.get("for_question") or "", (past or {}).get("count"))
+    if past and past.get("count"):
+        client["past_asks"] = past | {"items": recent[:3]}
 
 
 def agent_answer(question: str, client: dict | None, state: dict, emit) -> tuple[dict | None, str | None]:
@@ -314,6 +317,8 @@ def agent_answer(question: str, client: dict | None, state: dict, emit) -> tuple
             return agent.Agent(clientdata, research_fn, emit, names=names).run(
                 question, ctx, state.get("turns") or []), None
         except agent.AgentUnavailable as exc:
+            # The salesperson sees a plain message; the operator log keeps the cause.
+            print(f"[orchestrator] assistant unavailable: {exc}", file=sys.stderr, flush=True)
             reason = "The assistant couldn't answer just now."
     snap = agent.snapshot(clientdata, client, question)
     if snap:

@@ -1,0 +1,3 @@
+contact_id,client_id,first_name,last_name,title,email,is_primary
+PS01,C013,Amy,Lim,Group Treasurer,amy.lim@brightway.example.com,1
+PS02,C013,Darren,Ng,Finance Manager,darren.ng@brightway.example.com,0

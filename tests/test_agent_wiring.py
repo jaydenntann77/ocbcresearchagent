@@ -100,7 +100,7 @@ class CD:
         return MATCH if "Harbourline" in q else {"status": "none", "candidates": []}
     def exists(self, cid): return True
     def view(self, name, client_id=None, **p): return OVERVIEW
-    def past_asks(self, *a): return None
+    def past_asks(self, *a, **kw): return None
     def trade_context(self, *a): return []
 
 research_calls = []

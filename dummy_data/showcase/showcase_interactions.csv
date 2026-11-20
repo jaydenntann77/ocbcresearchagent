@@ -1,0 +1,11 @@
+interaction_id,client_id,contact_id,asked_at,logged_by,question,instruments,topic,answer_summary,conversation_id
+IS-C013-01,C013,PS01,T-241 09:42,Tan Wei Ling,Where does OCBC see USD/SGD over the next six months? We are setting the budget rate for second-half receipts.,USDSGD,forecast,Sent OCBC's USD/SGD forecast table and the main drivers.,
+IS-C013-02,C013,PS01,T-238 15:10,Tan Wei Ling,We sign the machining-line contract with our Japanese supplier next month. What is OCBC's USD/JPY outlook?,USDJPY,forecast,Sent OCBC's USD/JPY forecast and risks.,
+IS-C013-03,C013,PS01,T-179 10:05,Tan Wei Ling,"Has OCBC changed its view on the Fed path, and what would it mean for USD/SGD?",USDSGD,rates,Sent OCBC's Fed view and the USD/SGD forecast.,
+IS-C013-04,C013,PS01,T-178 11:30,Tan Wei Ling,The first instalment invoice is in. Where does OCBC see USD/JPY over the next two months?,USDJPY,forecast,Sent OCBC's USD/JPY forecast; client booked the instalment hedge.,
+IS-C013-05,C013,PS01,T-150 14:20,Tan Wei Ling,Could you send OCBC's latest view on SGD and MAS policy for our board pack?,USDSGD,macro,Sent OCBC's SGD and MAS policy outlook.,
+IS-C013-06,C013,PS02,T-133 16:45,Tan Wei Ling,The second instalment invoice is confirmed. Could you send the latest USD/JPY view before we book the hedge?,USDJPY,forecast,Sent OCBC's USD/JPY forecast.,
+IS-C013-07,C013,PS01,T-91 09:15,Tan Wei Ling,"A US customer is paying about three months late. Can we roll the USD 6m forward due next week, and has the USD/SGD forecast changed?",USDSGD,hedging,Explained an FX swap roll and sent the USD/SGD forecast; client rolled the forward.,
+IS-C013-08,C013,PS01,T-88 10:50,Tan Wei Ling,Third instalment invoice confirmed. What is OCBC's latest yen view?,USDJPY,forecast,Sent OCBC's USD/JPY forecast; client booked the instalment hedge.,
+IS-C013-09,C013,PS01,T-31 08:55,Tan Wei Ling,US yields are climbing again. Is OCBC still expecting USD/SGD to move lower next year?,USDSGD,rates,Sent OCBC's USD/SGD forecast and the note on US yields.,
+IS-C013-10,C013,PS01,T-28 17:05,Tan Wei Ling,Any update on the yen? We are starting to plan the final instalment.,USDJPY,forecast,Sent OCBC's USD/JPY forecast.,

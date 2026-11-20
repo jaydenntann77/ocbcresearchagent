@@ -269,7 +269,10 @@ access.
   report's own published qualifications.
 * Every figure with decimals, or of 100 and above, in client-book and suggestion text and tables is matched
   against the data the tools returned. A figure that is not found is shown as **Check …**.
-* An AI suggestion or general section that attributes a view to OCBC is flagged.
+* An AI suggestion or general section that attributes a view to OCBC is flagged, unless it is a trade idea that
+  cites the research item the view comes from (its figures are then checked against that item).
+* If the agent read a client's own records but left out the *Talking points & trade ideas* section, or asked OCBC
+  research but quoted none of it, it is asked once (no further tools) to add what is missing.
 * Each answer has a *How I worked this out* list: every lookup in plain words and what it found. The `D1` chips
   beside each fact jump to the step it came from. Model turns, tokens and timings are kept in the answer data,
   not shown.
@@ -288,6 +291,14 @@ once against `RA_MODEL_DAILY_CAP`.
 
 **Data.** The client book in this repo is synthetic. Agent mode sends the client data it reads to the Anthropic
 API. Real client data would need the bank's approval for that, or a pseudonymisation layer in front of the tools.
+
+**Showcase client.** Brightway Engineering Pte Ltd (C013, contact Amy Lim) is the client used in the app
+walkthrough and is always in the book, also on the hosted site. Its book tells one story: layered monthly
+USD/SGD hedges, two past rolls, three deals and a yen instalment maturing within two weeks, the last yen
+instalment not hedged yet, and a year of logged asks. It is loaded read-only from `dummy_data/showcase/`, where
+every date is relative to today ("T-87", "T+4"), so the maturities stay upcoming whenever the app runs. Asks
+logged about it go to the database like any other client's. Regenerate the files with
+`python -m app.clientdata.showcase --write`.
 
 ## Dates and freshness
 

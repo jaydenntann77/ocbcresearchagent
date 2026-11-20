@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from app.clientdata import generate, patterns, schema
+from app.clientdata import generate, patterns, schema, showcase
 from app.clientdata.book import ClientBook
 from app.clientdata.identify import identify
 from app.clientdata.store import Store
@@ -124,13 +124,13 @@ def test_demo_off_hides_pattern_clients(book):
         found = identify(q, cb.clients(), cb.contacts())
         assert all(c.client_id != cid for c in found.candidates)
         assert cb.client(cid) is None and cb.contacts(cid) == [] and cb.interactions(cid) == []
-    assert len(cb.clients()) == 12
+    assert len(cb.clients()) == 13                                # 12 seeded + the showcase client
 
 
 def test_demo_on_identifies_pattern_clients(book):
     cb, _ = book
     cb.set_demo(True)
-    assert len(cb.clients()) == 16
+    assert len(cb.clients()) == 17
     for cid, (q, _) in QUESTIONS.items():
         found = identify(q, cb.clients(), cb.contacts())
         assert found.status == "match" and found.candidates[0].client_id == cid
@@ -187,9 +187,11 @@ def test_saved_asks_survive_toggling_and_count_again(book):
 def test_seeded_clients_unchanged_by_demo_mode(book):
     cb, _ = book
     seeded = generate.generate()
-    off = cb.clients()
+    seeded_only = lambda: [c for c in cb.clients() if c["client_id"].startswith("C")   # noqa: E731
+                           and c["client_id"] not in showcase.CLIENT_IDS]
+    off = seeded_only()
     cb.set_demo(True)
-    on = [c for c in cb.clients() if c["client_id"].startswith("C")]
+    on = seeded_only()
     assert off == on == sorted(seeded.clients, key=lambda c: c["client_id"])
     assert cb.trades(cb.client("C008")) == cb.store.trades(cb.client("C008")["sibs_cif"])
 

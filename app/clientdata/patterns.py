@@ -131,16 +131,16 @@ def _trade_from_file(row: dict, today: date) -> dict:
     return t
 
 
-def load(today: date | None = None, folder: Path = PATTERN_DIR) -> Book:
+def load(today: date | None = None, folder: Path = PATTERN_DIR, files: dict[str, str] = FILES) -> Book:
     """The pattern book with every T± date resolved against `today` (SGT) and status computed.
-    Read-only: nothing is written anywhere."""
+    Read-only: nothing is written anywhere. `files` names the four CSVs (the showcase client reuses this)."""
     today = today or today_sgt()
-    clients = _read(folder / FILES["clients"])
-    contacts = [r | {"is_primary": int(r["is_primary"] or 0)} for r in _read(folder / FILES["contacts"])]
-    trades = [_trade_from_file(r, today) for r in _read(folder / FILES["trades"])]
+    clients = _read(folder / files["clients"])
+    contacts = [r | {"is_primary": int(r["is_primary"] or 0)} for r in _read(folder / files["contacts"])]
+    trades = [_trade_from_file(r, today) for r in _read(folder / files["trades"])]
     interactions = [r | {"asked_at": resolve_dt(r["asked_at"], today).isoformat(),
                          "conversation_id": r.get("conversation_id") or None}
-                    for r in _read(folder / FILES["interactions"])]
+                    for r in _read(folder / files["interactions"])]
     trades.sort(key=lambda r: (r["trn_date"], r["trn_internal"]))
     return Book(clients, contacts, trades, interactions)
 
@@ -156,6 +156,53 @@ def _anchor(pair: str) -> tuple[float, int, float]:
         anchor, _, dp, pip = generate.PAIRS[pair]
         return anchor, dp, pip
     return EXTRA_PAIRS[pair]
+
+
+def trade_row(c: dict, *, contract: int, suffix: str, tdate: date, maturity: date, pair: str, side: str,
+              notional: float, label: str, spot: float, strike: float, margin: float, live: bool, spots: dict,
+              trn_type: str = "FXD", strategy: str = "CLIENT_HEDGE", remark: str = "", package: str = "",
+              comment: str = "PATTERN TEST CLIENT", sys_time: str = "10:00:00",
+              dealer: tuple[str, str] = ("D101", "KEVIN.ONG")) -> dict:
+    """One trade row in the export's fields for client `c` (absolute dates; write_files makes them T±)."""
+    _, dp, _ = _anchor(pair)
+    ccy1, ccy2 = pair[:3], pair[3:]
+    status = "LIVE" if live else "DEAD"
+    credit_fcy = round(notional * margin, 2)
+    credit_sgd = round(to_sgd(credit_fcy, ccy2, spots), 2)
+    npv0 = round((1 if side == "BUY" else -1) * notional * (spot - strike), 2)
+    s0 = round(to_sgd(1.0, ccy2, spots), 6)
+    last_op = "New" if status == "LIVE" else "Maturity"
+    row = {
+        "contract_ref": f"{contract}", "package_ref": package, "trn_internal": f"{contract}{suffix}",
+        "portfolio": "SG_FX_SALES_CORP", "trade_category": "Sales", "dealer": dealer[1], "remark": remark,
+        "counterpart_label": c["counterpart_label"], "counterpart_name": c["counterpart_name"],
+        "cust_seg": c["cust_seg"], "cust_rm": c["cust_rm"], "trn_date": tdate.isoformat(),
+        "period_start": tdate.isoformat(), "period_end": maturity.isoformat(), "instrument_label": label,
+        "dcr_opt_instrument": "", "ccy1": ccy1, "notional1": notional, "ccy2": ccy2,
+        "notional2": round(notional * strike, 2), "initial_price": spot, "strike_rate": strike,
+        "sale_credit_ccy": ccy2, "sales_fx_margin_fcy": round(margin, dp + 2),
+        "amt_sales_credit_udf_fcy": credit_fcy, "total_sale_credit_fcy": credit_fcy, "nominal_ccy": ccy1,
+        "nominal_amt_adj": notional, "notional_sgd": round(to_sgd(notional, ccy1, spots), 2),
+        "sales_fx_margin_sgd": round(to_sgd(margin, ccy2, spots), 6), "amt_sales_credit_udf_sgd": credit_sgd,
+        "total_sales_credit_sgd": credit_sgd,
+        "cost_centre": "SGTM" + {"LC": "101", "SME": "102", "FI": "201", "PB": "301"}[c["cust_seg"]],
+        "strategy": strategy, "trn_family": "CURR", "trn_group": "FXD", "trn_type": trn_type, "status": status,
+        "ta_rm_id": c["customer_rm_code"], "expiry_date": maturity.isoformat(),
+        "trn_external": f"EXT{contract}{suffix}", "buy_sell": side, "spot_margin": round(margin, dp + 2),
+        "comment_1": comment, "sibs_cif": c["sibs_cif"], "rm_team_l1": c["rm_team_l1"],
+        "rm_team_l2": c["rm_team_l2"], "rm_team_l3": c["rm_team_l3"], "rm_team_l4": c["rm_team_l4"],
+        "rm_team_l5": c["rm_team_l5"], "customer_rm_code": c["customer_rm_code"], "amendment_status": "Not amended",
+        "contract_na_event_action": "", "security_isin": "", "contract_source_module": "FX",
+        "last_market_operation": last_op, "contract_last_event": "Insertion", "contract_last_impact_event": last_op,
+        "sys_date": tdate.isoformat(), "sys_time": sys_time, "nfin_npv0": npv0,
+        "nfin_npv0s": round(npv0 * s0, 2), "fxspot0s": s0, "nfin_npv1": npv0, "fxspot1s": s0,
+        "nfin_npv1s": round(npv0 * s0, 2), "nfin_npv2": npv0, "fxspot2s": s0, "nfin_npv2s": round(npv0 * s0, 2),
+        "pl_ccy": ccy2, "entity": "OCBC SG", "entity_accounting_ccy": "SGD", "external_inter_intra": "External",
+        "internal": "N", "dealer_id": dealer[0], "contract_origin_ref": "", "replacement_origin_nb": "",
+        "trader_credit_udf_fcy": round(credit_fcy * 0.2, 2), "trader_credit_udf_sgd": round(credit_sgd * 0.2, 2),
+        "total_client_markup_fcy": credit_fcy, "total_client_markup_sgd": credit_sgd, "replacement_date": "",
+    }
+    return row
 
 
 class _Builder:
@@ -196,47 +243,14 @@ class _Builder:
             self.contract[cid] += self.rng.randint(1, 9)
             contract = self.contract[cid]
         anchor, dp, pip = _anchor(pair)
-        ccy1, ccy2 = pair[:3], pair[3:]
         spot = round(anchor * self.rng.uniform(0.99, 1.01), dp)
         tenor_y = max((maturity - tdate).days, 0) / 365
         margin = self.rng.choice([2, 3, 5, 8]) * pip
         strike = round(spot * (1 + 0.01 * tenor_y) + (margin if side == "BUY" else -margin), dp + 1)
-        status = "LIVE" if maturity >= self.today else "DEAD"
-        credit_fcy = round(notional * margin, 2)
-        credit_sgd = round(to_sgd(credit_fcy, ccy2, self.spots), 2)
-        npv0 = round((1 if side == "BUY" else -1) * notional * (spot - strike), 2)
-        s0 = round(to_sgd(1.0, ccy2, self.spots), 6)
-        last_op = "New" if status == "LIVE" else "Maturity"
-        row = {
-            "contract_ref": f"{contract}", "package_ref": package, "trn_internal": f"{contract}{suffix}",
-            "portfolio": "SG_FX_SALES_CORP", "trade_category": "Sales", "dealer": "KEVIN.ONG", "remark": remark,
-            "counterpart_label": c["counterpart_label"], "counterpart_name": c["counterpart_name"],
-            "cust_seg": c["cust_seg"], "cust_rm": c["cust_rm"], "trn_date": tdate.isoformat(),
-            "period_start": tdate.isoformat(), "period_end": maturity.isoformat(), "instrument_label": label,
-            "dcr_opt_instrument": "", "ccy1": ccy1, "notional1": notional, "ccy2": ccy2,
-            "notional2": round(notional * strike, 2), "initial_price": spot, "strike_rate": strike,
-            "sale_credit_ccy": ccy2, "sales_fx_margin_fcy": round(margin, dp + 2),
-            "amt_sales_credit_udf_fcy": credit_fcy, "total_sale_credit_fcy": credit_fcy, "nominal_ccy": ccy1,
-            "nominal_amt_adj": notional, "notional_sgd": round(to_sgd(notional, ccy1, self.spots), 2),
-            "sales_fx_margin_sgd": round(to_sgd(margin, ccy2, self.spots), 6), "amt_sales_credit_udf_sgd": credit_sgd,
-            "total_sales_credit_sgd": credit_sgd,
-            "cost_centre": "SGTM" + {"LC": "101", "SME": "102", "FI": "201", "PB": "301"}[c["cust_seg"]],
-            "strategy": strategy, "trn_family": "CURR", "trn_group": "FXD", "trn_type": trn_type, "status": status,
-            "ta_rm_id": c["customer_rm_code"], "expiry_date": maturity.isoformat(),
-            "trn_external": f"EXT{contract}{suffix}", "buy_sell": side, "spot_margin": round(margin, dp + 2),
-            "comment_1": "PATTERN TEST CLIENT", "sibs_cif": c["sibs_cif"], "rm_team_l1": c["rm_team_l1"],
-            "rm_team_l2": c["rm_team_l2"], "rm_team_l3": c["rm_team_l3"], "rm_team_l4": c["rm_team_l4"],
-            "rm_team_l5": c["rm_team_l5"], "customer_rm_code": c["customer_rm_code"], "amendment_status": "Not amended",
-            "contract_na_event_action": "", "security_isin": "", "contract_source_module": "FX",
-            "last_market_operation": last_op, "contract_last_event": "Insertion", "contract_last_impact_event": last_op,
-            "sys_date": tdate.isoformat(), "sys_time": "10:00:00", "nfin_npv0": npv0,
-            "nfin_npv0s": round(npv0 * s0, 2), "fxspot0s": s0, "nfin_npv1": npv0, "fxspot1s": s0,
-            "nfin_npv1s": round(npv0 * s0, 2), "nfin_npv2": npv0, "fxspot2s": s0, "nfin_npv2s": round(npv0 * s0, 2),
-            "pl_ccy": ccy2, "entity": "OCBC SG", "entity_accounting_ccy": "SGD", "external_inter_intra": "External",
-            "internal": "N", "dealer_id": "D101", "contract_origin_ref": "", "replacement_origin_nb": "",
-            "trader_credit_udf_fcy": round(credit_fcy * 0.2, 2), "trader_credit_udf_sgd": round(credit_sgd * 0.2, 2),
-            "total_client_markup_fcy": credit_fcy, "total_client_markup_sgd": credit_sgd, "replacement_date": "",
-        }
+        row = trade_row(c, contract=contract, suffix=suffix, tdate=tdate, maturity=maturity, pair=pair,
+                        side=side, notional=notional, label=label, spot=spot, strike=strike, margin=margin,
+                        live=maturity >= self.today, spots=self.spots, trn_type=trn_type,
+                        strategy=strategy, remark=remark, package=package)
         self.trades.append(row)
         return row
 
@@ -361,7 +375,7 @@ def build(today: date | None = None, seed: int = SEED) -> Book:
     return Book(b.clients, b.contacts, b.trades, b.interactions)
 
 
-def write_files(book: Book, today: date, folder: Path = PATTERN_DIR) -> list[Path]:
+def write_files(book: Book, today: date, folder: Path = PATTERN_DIR, files: dict[str, str] = FILES) -> list[Path]:
     """Write the book with every date as T± relative to `today` and no stored status."""
     folder.mkdir(parents=True, exist_ok=True)
     out = []
@@ -374,8 +388,8 @@ def write_files(book: Book, today: date, folder: Path = PATTERN_DIR) -> list[Pat
             w.writerows(rows)
         out.append(p)
 
-    dump(FILES["clients"], list(book.clients[0]), [list(r.values()) for r in book.clients])
-    dump(FILES["contacts"], list(book.contacts[0]), [list(r.values()) for r in book.contacts])
+    dump(files["clients"], list(book.clients[0]), [list(r.values()) for r in book.clients])
+    dump(files["contacts"], list(book.contacts[0]), [list(r.values()) for r in book.contacts])
     trades = []
     for t in book.trades:
         t = dict(t)
@@ -384,10 +398,10 @@ def write_files(book: Book, today: date, folder: Path = PATTERN_DIR) -> list[Pat
         for f in STATUS_FIELDS:
             t[f] = ""
         trades.append([t[f] for f in schema.TRADE_FIELDS])
-    dump(FILES["trades"], schema.TRADE_HEADERS, trades)   # export-style headers, like dummy_data/trades.csv
+    dump(files["trades"], schema.TRADE_HEADERS, trades)   # export-style headers, like dummy_data/trades.csv
     inter = [r | {"asked_at": to_rel_dt(datetime.fromisoformat(r["asked_at"]), today),
                   "conversation_id": r["conversation_id"] or ""} for r in book.interactions]
-    dump(FILES["interactions"], list(inter[0]), [list(r.values()) for r in inter])
+    dump(files["interactions"], list(inter[0]), [list(r.values()) for r in inter])
     return out
 
 

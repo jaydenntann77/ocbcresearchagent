@@ -118,7 +118,8 @@ ANSWER = {
             {"text": "", "refs": ["R99"]}]},
         {"title": "Ideas", "kind": "ai_suggestion", "points": [
             {"text": "Raise rolling the SELL USD 4.7m forward (3 Dec) with an FX swap; OCBC expects a softer USD.",
-             "refs": ["D1", "R1"]}],
+             "refs": ["D1", "R1"]},
+            {"text": "OCBC expects the SGD to firm, so sell more USD forward.", "refs": ["D1"]}],
          "table": {"columns": ["Deal", "Maturity"], "rows": [["SELL USD 4.7m forward", "3 Dec 2026"],
                                                              ["SELL USD 7.3m forward", "9 Dec 2026"]]}},
         {"title": "Collars in brief", "kind": "general", "table": None, "points": [
@@ -167,11 +168,12 @@ def test_tool_loop_and_enforced_checks():
         {"text": "Not meant to serve as point forecasts.", "citations": [2], "mode": "verbatim"}]
     assert answer["research_caveats"] == ["No verified forecast for the 2028 horizon.", "Two reports differ on 4Q26."]
     assert answer["verification"]["research_dropped"] == 1
-    # ai_suggestion: figures from the client book pass; a view attributed to OCBC is flagged; the table
-    # cell with an invented deal is flagged.
+    # ai_suggestion: figures from the client book pass; a view attributed to OCBC is flagged unless the
+    # idea cites the research item it comes from; the table cell with an invented deal is flagged.
     sug = secs["ai_suggestion"]
-    assert "unverified" not in sug["points"][0] and sug["points"][0]["view_flag"] is True
+    assert "unverified" not in sug["points"][0] and "view_flag" not in sug["points"][0]
     assert sug["points"][0]["citations"] == [1]
+    assert sug["points"][1]["view_flag"] is True and "citations" not in sug["points"][1]
     assert sug["table"]["unverified"] == ["7.3"]
     # general: not checked against client data.
     assert "unverified" not in secs["general"]["points"][0]
@@ -248,6 +250,9 @@ def test_quoted_client_question_is_not_an_ocbc_view():
     assert "view_flag" not in pts[0] and pts[1]["view_flag"] is True
     assert "view_flag" not in pts[2]          # reports what the client asked for
     assert pts[3]["view_flag"] is True        # the ask is in another sentence; the claim still counts
+    data["headline"] = "Brightway has four deals maturing. OCBC research has forecasts for both USD/SGD and USD/JPY."
+    answer, *_ = run_agent([final(data)])
+    assert answer["headline_view_flag"] is False     # saying research HAS a forecast is not a view
     data["sections"][0]["kind"] = "client_data"   # logged client data is never flagged
     answer, *_ = run_agent([final(data)])
     assert not any("view_flag" in p for p in answer["sections"][0]["points"])
@@ -313,3 +318,31 @@ def test_executive_summary_falls_back_to_quoted_research_and_sections_are_ordere
     assert [p["item"] for p in answer["summary_research"]] == quoted[:ag.MAX_SUMMARY_REFS]
     kinds = [s["kind"] for s in answer["sections"]]
     assert kinds == sorted(kinds, key=ag.SECTION_ORDER.index)           # client book, ideas, research, general
+
+
+def test_missing_talking_points_or_research_are_asked_for_once():
+    """A client's records were read and research returned items, but the answer left out the talking points
+    and the quoted research: the model is asked once (no tools) to add them."""
+    thin = {"headline": "Harbourline has one forward maturing on 3 Dec.", "follow_ups": [],
+            "sections": [{"title": "Where they stand", "kind": "client_data", "table": None,
+                          "points": [{"text": "SELL USD 4.7m forward matures on 3 Dec 2026.", "refs": ["D1"]}]}]}
+    script = [tool_use(("client_overview", {"client_id": "C001"}), ("ocbc_research", {"question": "USD/SGD view"})),
+              final(thin), final(ANSWER)]
+    answer, model, *_ = run_agent(script)
+    assert len(model.calls) == 3
+    repair = model.calls[2]
+    assert repair["tool_choice"] == {"type": "none"}
+    ask = repair["messages"][-1]["content"]
+    assert "Talking points & trade ideas" in ask and "ocbc_research section" in ask
+    assert {s["kind"] for s in answer["sections"]} >= {"ai_suggestion", "ocbc_research"}
+    assert answer["agent"]["turns"] == 3
+
+    # a complete answer is not sent back, and a book-wide maturity check needs no client talking points
+    _, model, *_ = run_agent([tool_use(("client_overview", {"client_id": "C001"})), final(ANSWER)])
+    assert len(model.calls) == 2
+    book = {"headline": "1 deal matures.", "follow_ups": [], "sections": [
+        {"title": "Maturing", "kind": "client_data", "table": None,
+         "points": [{"text": "Harbourline: SELL USD 4.7m forward on 19 Nov 2026.", "refs": ["D1"]}]}]}
+    _, model, *_ = run_agent([tool_use(("upcoming_maturities", {"days": 14})), final(book)],
+                             question="What is maturing in the next 2 weeks?")
+    assert len(model.calls) == 2

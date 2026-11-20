@@ -100,9 +100,9 @@ class ClientDataClient:
             return True   # a lookup failure never drops the conversation's client
         return r.status_code == 200
 
-    def past_asks(self, client_id: str, contact_id: str | None) -> dict | None:
+    def past_asks(self, client_id: str, contact_id: str | None, limit: int = 3) -> dict | None:
         """Earlier logged asks from this contact (None on any failure - never blocks an answer)."""
-        params = {"contact_id": contact_id} if contact_id else {}
+        params = {"limit": limit} | ({"contact_id": contact_id} if contact_id else {})
         try:
             r = self.client.get(f"{self.base}/v1/clients/{client_id}/asks", params=params, headers=self._h())
         except httpx.HTTPError:

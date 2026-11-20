@@ -139,29 +139,36 @@ def insights(name: str, description: str, limit: int = 500) -> list[str]:
     return insight_lines(name, [(d, _when(t)) for d, t in rows], description)
 
 
-def insights_for_asks(name: str, items: list[dict], description: str) -> list[str]:
+def insights_for_asks(name: str, items: list[dict], description: str, total: int | None = None) -> list[str]:
     """The same insights for a client in the client book, from its logged asks
-    ({"question", "asked_at": ISO time}, newest first)."""
+    ({"question", "asked_at": ISO time}, newest first). `total` is how many are on record when
+    `items` holds only the most recent ones."""
     def when(s):
         try:
             return datetime.fromisoformat(str(s)[:19]).replace(tzinfo=SGT)
         except ValueError:
             return None
-    return insight_lines(name, [(i.get("question") or "", when(i.get("asked_at"))) for i in items], description)
+    return insight_lines(name, [(i.get("question") or "", when(i.get("asked_at"))) for i in items], description,
+                         total)
 
 
-def insight_lines(name: str, history: list[tuple[str, datetime | None]], description: str) -> list[str]:
+def _times(n: int, word: str = "time") -> str:
+    return f"{n} {word}" if n == 1 else f"{n} {word}s"
+
+
+def insight_lines(name: str, history: list[tuple[str, datetime | None]], description: str,
+                  total: int | None = None) -> list[str]:
     """Plain-language observations from (ask, when) pairs, newest first."""
     if not history:
         return [f"First recorded ask for {name}."]
     now = datetime.now(SGT)
     asks = [(d, dt, tags(d)) for d, dt in history]  # newest first
-    lines = [f"{len(asks)} previous ask(s) on record; the latest was {_ago(asks[0][1], now)}."]
+    lines = [f"{_times(max(total or 0, len(asks)), 'previous ask')} on record; the latest was {_ago(asks[0][1], now)}."]
     now_tags = tags(description)
     for tg in now_tags:
         hits = [a for a in asks if tg in a[2]]
         if hits:
-            lines.append(f"Asked about {tg} {len(hits)} time(s) before; most recently {_ago(hits[0][1], now)}.")
+            lines.append(f"Asked about {tg} {_times(len(hits))} before; most recently {_ago(hits[0][1], now)}.")
     seen: dict[str, datetime | None] = {}
     for _, dt, tgs in asks:
         if dt and (now - dt).days <= 30:
