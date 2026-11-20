@@ -24,6 +24,7 @@ import fitz  # noqa: E402
 
 from app.common.freshness import label as freshness_label  # noqa: E402
 from app.common.security import require_token  # noqa: E402
+from app.docs.highlight import highlight  # noqa: E402
 
 app = FastAPI(title="Document viewer", docs_url=None, redoc_url=None, openapi_url=None)
 auth = require_token(config.TOKEN_GATEWAY_DOCS)
@@ -83,21 +84,7 @@ def page_image(doc_id: str, page: int, q: str | None = Query(default=None, max_l
     with fitz.open(_raw_path(d)) as pdf:
         p = pdf[page - 1]
         if q:
-            for part in re.split(r"\n|(?<=[.;:])\s+", q):
-                words = part.replace(" | ", " ").split()
-                for size in (10, 6, 4):
-                    if len(words) < 3:
-                        break
-                    found = False
-                    for start in range(0, max(1, len(words) - size + 1), size):
-                        phrase = " ".join(words[start:start + size])
-                        for rect in p.search_for(phrase):
-                            annot = p.add_highlight_annot(rect)
-                            annot.set_colors(stroke=(1, 0.85, 0.2))
-                            annot.update()
-                            found = True
-                    if found:
-                        break
+            highlight(p, q)
         pix = p.get_pixmap(dpi=max(60, min(dpi, 200)), annots=True)
     return Response(pix.tobytes("png"), media_type="image/png", headers={"Cache-Control": "private, max-age=300"})
 
